@@ -20,8 +20,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
    ```bash
    codesign --force --deep --sign "Whispree Signing" \
      --entitlements Whispree/Resources/Whispree.entitlements \
-     -o runtime /Applications/Whispree.app
+     /Applications/Whispree.app
    ```
+   **`-o runtime`을 붙이지 말 것.** hardened runtime은 library validation을 켜는데, 이는 로드되는 프레임워크가 **같은 Team ID로 서명됐을 것**을 요구한다. `Whispree Signing`은 자체 서명이라 Team ID가 아예 없어서 `Sparkle.framework` 검증이 통과할 수 없고, 앱이 `Library not loaded: @rpath/Sparkle.framework/...`로 죽는다. (개발자 인증서는 Team ID가 있어 `-o runtime`이 통하지만, 그러면 TCC 정체성이 CI 배포본과 달라진다.) `--entitlements`는 반드시 붙일 것 — 빼면 entitlements가 전부 날아간다.
 5. 앱 재실행 + **기동 확인**: `open /Applications/Whispree.app` 후 반드시
    `pgrep -f "Whispree.app/Contents/MacOS/Whispree"`로 프로세스가 살아있는지 볼 것.
    `open`은 프로세스가 즉시 죽어도 성공을 반환하고 `codesign --verify`도 통과하므로,
@@ -63,6 +64,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **코드 서명 주의**: CI(`release.yml:119`)는 ad-hoc이 아니라 **자체 서명 인증서 `Whispree Signing`**(CN=Whispree Signing, O=Arsture, 2036년 만료)으로 서명한다. P12를 `SIGNING_CERTIFICATE_P12` secret으로 넣어 CI 키체인에 import한 뒤 `codesign --force --deep --sign "Whispree Signing"`을 실행. 이 인증서는 로컬 키체인에도 있고, 위 배포 절차가 Release 빌드를 같은 인증서로 재서명하므로 **로컬 배포본과 Sparkle 배포본의 TCC 정체성이 일치**한다 (권한을 한 번만 주면 됨). 단 **Debug 빌드를 이걸로 재서명하면 기동에 실패한다** — hardened runtime의 library validation이 Team ID 없는 자체 서명 인증서로 서명된 `Whispree.debug.dylib`을 거부하기 때문. 배포는 Release로만 할 것.
 
 빌드 자체는 `project.yml`의 Automatic Signing(`DEVELOPMENT_TEAM: DRDT2F8525`, `Apple Development` 인증서)을 쓰고, 배포 시 `Whispree Signing`으로 갈아끼우는 2단 구조다.
+
+**미해결 이슈 — CI 배포본이 entitlements와 hardened runtime을 잃는다**: `release.yml:119`의 `codesign --force --deep --sign "Whispree Signing"`에는 `--entitlements`가 없다. `--force`는 기존 서명을 갈아엎으므로 결과물은 **entitlements 0개, `flags=0x0(none)`**(hardened runtime 꺼짐)이 된다 — 로컬에서 동일 명령을 재현해 확인함. `project.yml`은 `ENABLE_HARDENED_RUNTIME: "YES"`와 entitlements 3개를 지정하는데 배포 단계에서 전부 유실되는 것이다. 앱이 sandbox를 쓰지 않고 hardened runtime도 함께 꺼지므로 AppleEvents가 곧바로 깨지지는 않지만(entitlement gate는 hardened runtime 하에서만 작동), 의도된 구성이 아니다. `release.yml`에 `--entitlements Whispree/Resources/Whispree.entitlements`를 추가해야 한다. `-o runtime`은 자체 서명 인증서로는 불가(위 참조) — hardened runtime까지 되살리려면 Team ID가 있는 인증서가 필요하다.
 
 **진단 함정**: Claude Code의 Bash 샌드박스는 키체인 접근을 막아서 `security find-identity`가 인증서를 일부만 보여주고 서명 빌드가 `No signing certificate "Mac Development" found ... team ID "DRDT2F8525"`로 실패한다. 이걸 보고 "`project.yml`의 팀 ID가 틀렸다"고 오진하지 말 것 — 서명이 필요한 명령은 `dangerouslyDisableSandbox: true`로 실행해야 한다. 참고로 인증서 CN의 괄호 값(`Apple Development: name (XXXXXXXXXX)`)은 팀 ID가 아니라 인증서 ID이며, 팀 ID는 subject의 OU 필드에 있다.
 
