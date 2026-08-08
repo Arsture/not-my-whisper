@@ -383,13 +383,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     case .recording, .transcribing, .correcting:
                         self.mainWindow?.level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 1)
                         showOverlay()
-                        self.hideSelectionPanel()
+                        self.hideSelectionPanelIfStateAllows()
                     case .selectingScreenshots:
                         // level은 낮게 유지 — 선택 패널은 .floating이라 정상 표시
                         self.hideOverlay()
                         self.showSelectionPanel()
                     case .idle, .inserting:
-                        self.hideSelectionPanel()
+                        self.hideSelectionPanelIfStateAllows()
                         if state == .idle {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                                 if self.appState.transcriptionState == .idle {
@@ -547,6 +547,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Teardown requested by a `transcriptionState` publish. Combine delivers those values
+    /// asynchronously, so `state` can already be stale by the time this runs. If the current
+    /// projected state still says we are selecting screenshots, the publish predates the
+    /// selection and must not tear the panel down — doing so would also resolve the pending
+    /// continuation with an empty selection and make images permanently unattachable.
+    private func hideSelectionPanelIfStateAllows() {
+        guard appState.transcriptionState != .selectingScreenshots else { return }
+        hideSelectionPanel()
+    }
+
     private func hideSelectionPanel() {
         if let monitor = selectionKeyMonitor {
             NSEvent.removeMonitor(monitor)
@@ -558,7 +568,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appState.previewRequestCallback = nil
         appState.dismissSelectionPanel = nil
 
-        // 대기 중인 continuation을 resume시켜 leak 방지
+        // 대기 중인 continuation을 resume시켜 leak 방지. 패널이 실제로 내려가는 모든
+        // 경로에서 반드시 실행되어야 한다 — 남겨두면 deliver()가 영원히 매달려 FIFO
+        // delivery 전체가 막힌다. 명시 경로(confirmSelection/skip, cancel, 녹음 suspend)는
+        // 호출 전에 callback을 이미 nil로 만들므로 이중 resume은 발생하지 않는다.
         let pendingCallback = appState.screenshotSelectionCallback
         appState.screenshotSelectionCallback = nil
         pendingCallback?([])
