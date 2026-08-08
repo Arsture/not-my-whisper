@@ -19,7 +19,7 @@ AI polishes your raw transcription — from spacing, punctuation, and misrecogni
 Fully local correction. It supports text models (Qwen3, Gemma 4, GLM, etc.) and vision models (Qwen3-VL-4B, DiffusionGemma 26B); download models in Settings → Models. With a vision model, you can leverage [visual context](/en/features/context/) for correction. For per-model compatibility, see [Models & compatibility](/en/features/models/).
 
 ### OpenAI (GPT)
-Uses the ChatGPT Responses API (SSE streaming). For authentication, it **prefers reusing the Codex CLI token (`~/.codex/auth.json`)**, and if absent, connects via **OpenAI login** (browser PKCE) in the LLM tab. Models: GPT-5.5 (default) · 5.4 · 5.4 Mini · 5.3 Codex · 5.2. Vision supported.
+Uses the ChatGPT Responses API (SSE streaming). For authentication, it **prefers reusing the Codex CLI token (`~/.codex/auth.json`)**, and if absent, connects via **OpenAI login** (browser PKCE) in the LLM tab. Models: GPT-5.6 Sol (default) · Terra · Luna · 5.5 · 5.4 · 5.4 Mini · 5.3 Codex · 5.2. Vision supported.
 
 ### Groq Cloud
 OpenAI-compatible cloud. Models: Qwen3 32B (default) · Llama 3.3 70B · Llama 3.1 8B · GPT-OSS 120B/20B, with **vision supported on Llama 4 Scout only**. Uses the same Groq key as STT.

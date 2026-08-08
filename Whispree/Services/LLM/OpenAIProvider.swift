@@ -17,7 +17,7 @@ final class OpenAIProvider: LLMProvider {
         return .invalid("OpenAI 인증이 필요합니다. Codex CLI 로그인 또는 OAuth 인증을 해주세요.")
     }
 
-    init(model: OpenAIModel = .gpt55, authService: CodexAuthService, oauthService: OAuthService) {
+    init(model: OpenAIModel = .gpt56sol, authService: CodexAuthService, oauthService: OAuthService) {
         self.model = model
         self.authService = authService
         self.oauthService = oauthService

@@ -168,7 +168,7 @@ The built-in **Can I Run** feature detects your hardware (chip, RAM, bandwidth) 
 
 | Provider | Model | Size | Notes |
 |----------|-------|------|-------|
-| **OpenAI** | `gpt-5.5` (default), `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.2` | ☁️ | Best quality |
+| **OpenAI** | `gpt-5.6-sol` (default), `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.2` | ☁️ | Best quality |
 | **Local Text** | `Qwen3-1.7B-4bit` | ~940 MB | Lightweight, fast |
 | **Local Text** | `Qwen3-4B-Instruct-2507-4bit` (default) | ~2.1 GB | Balanced default |
 | **Local Text** | `Qwen3-8B-4bit` | ~4.3 GB | High-quality Korean |

@@ -61,7 +61,7 @@ final class AppSettingsTests: XCTestCase {
 
     func testDefaultOpenAIModel() {
         let settings = AppSettings()
-        XCTAssertEqual(settings.openaiModel, .gpt55)
+        XCTAssertEqual(settings.openaiModel, .gpt56sol)
     }
 
     func testDefaultLLMEnabled() {
@@ -95,12 +95,18 @@ final class AppSettingsTests: XCTestCase {
     // MARK: - OpenAI Models
 
     func testOpenAIModelDefaults() {
+        XCTAssertEqual(OpenAIModel.gpt56sol.rawValue, "gpt-5.6-sol")
+        XCTAssertEqual(OpenAIModel.gpt56terra.rawValue, "gpt-5.6-terra")
+        XCTAssertEqual(OpenAIModel.gpt56luna.rawValue, "gpt-5.6-luna")
         XCTAssertEqual(OpenAIModel.gpt55.rawValue, "gpt-5.5")
         XCTAssertEqual(OpenAIModel.gpt54.rawValue, "gpt-5.4")
         XCTAssertEqual(OpenAIModel.gpt54mini.rawValue, "gpt-5.4-mini")
         XCTAssertEqual(OpenAIModel.gpt53codex.rawValue, "gpt-5.3-codex")
         XCTAssertEqual(OpenAIModel.gpt52.rawValue, "gpt-5.2")
         XCTAssertEqual(OpenAIModel.allCases.map(\.rawValue), [
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
             "gpt-5.5",
             "gpt-5.4",
             "gpt-5.4-mini",
@@ -110,7 +116,8 @@ final class AppSettingsTests: XCTestCase {
     }
 
     func testOpenAIModelDisplayNames() {
-        XCTAssertTrue(OpenAIModel.gpt55.displayName.contains("Latest"))
+        XCTAssertTrue(OpenAIModel.gpt56sol.displayName.contains("Latest"))
+        XCTAssertTrue(OpenAIModel.gpt56luna.displayName.contains("Fast"))
         XCTAssertTrue(OpenAIModel.gpt54mini.displayName.contains("Fast"))
     }
 
@@ -121,8 +128,14 @@ final class AppSettingsTests: XCTestCase {
         UserDefaults.standard.set("gpt-5.2-codex", forKey: "whispree.openaiModel")
         XCTAssertEqual(AppSettings().openaiModel, .gpt52)
 
+        UserDefaults.standard.set("gpt-5.6", forKey: "whispree.openaiModel")
+        XCTAssertEqual(AppSettings().openaiModel, .gpt56sol)
+
         let decoded = try? JSONDecoder().decode(OpenAIModel.self, from: Data(#""gpt-5.2-codex""#.utf8))
         XCTAssertEqual(decoded, .gpt52)
+
+        let decodedAlias = try? JSONDecoder().decode(OpenAIModel.self, from: Data(#""gpt-5.6""#.utf8))
+        XCTAssertEqual(decodedAlias, .gpt56sol)
     }
 
     // MARK: - CorrectionPrompts Routing
