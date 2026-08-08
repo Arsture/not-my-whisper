@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var overlayPanel: NSPanel?
     private var selectionPanel: NSPanel?
     private var selectionKeyMonitor: Any?
+    private var selectionPanelKeyObserver: NSObjectProtocol?
     private var previewPanel: NSPanel?
     /// 녹음 시작 시의 활성 화면 — 모든 패널이 이 화면에 표시
     private var activeScreen: NSScreen?
@@ -404,6 +405,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showOverlay() {
+        // activeScreen은 showOverlay 설정(on/off)과 무관하게, 녹음이 시작되는 시점(.recording
+        // 진입)에 반드시 캡처해야 한다. showSelectionPanel()/showPreviewPanel()은 STT/LLM
+        // 처리(수 초)가 끝난 뒤 activeScreen을 폴백으로 읽는데, 이 캡처가 아래 설정 guard
+        // 뒤에 있으면 오버레이를 꺼둔 사용자는 activeScreen이 영영 채워지지 않아 결국
+        // NSScreen.main이 "패널이 뜨려는 순간"에 다시 평가된다 — 멀티 디스플레이에서
+        // 사용자가 그 사이 다른 화면으로 옮겨가 있으면 패널이 엉뚱한 모니터에 뜬다.
+        // .recording 상태일 때만 캡처해 이후 이 함수가 .transcribing/.correcting에서
+        // 다시 호출되어도 값이 덮어써지지 않게 한다 — "정리"한답시고 guard 뒤로
+        // 되돌리지 말 것 (그 순간엔 오버레이 on일 때도 같은 버그가 재발한다).
+        if appState.transcriptionState == .recording {
+            activeScreen = NSScreen.main ?? NSScreen.screens[0]
+        }
+
         guard appState.settings.showOverlay else { return }
 
         if overlayPanel != nil {
@@ -424,10 +438,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isMovableByWindowBackground = true
 
-        // 활성 화면 캡처 — 이후 선택/미리보기 패널도 이 화면에 표시
-        let screen = NSScreen.main ?? NSScreen.screens[0]
-        activeScreen = screen
         // midX/midY로 글로벌 좌표 기준 중앙 배치 (멀티 디스플레이 대응)
+        let screen = activeScreen ?? NSScreen.main ?? NSScreen.screens[0]
         let x = screen.frame.midX - 160
         let y = screen.visibleFrame.maxY - 100
         panel.setFrameOrigin(NSPoint(x: x, y: y))
@@ -513,11 +525,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // 패널이 key가 되면 앱 재활성화 — 로컬 키 모니터가 동작하려면 앱이 active여야 함
-        NotificationCenter.default.addObserver(
+        // 토큰을 selectionPanelKeyObserver에 저장하고 hideSelectionPanel()에서 반드시 제거한다.
+        // NotificationCenter가 제거 전까지 이 클로저를 계속 들고 있으므로 panel을 직접
+        // 캡처하지 않는다 — notification.object(포스트 시점의 window)를 self.selectionPanel과
+        // 비교해 8376fb0e의 asyncAfter 가드와 같은 목적(패널이 이미 내려간 뒤 뒤늦게 콜백이
+        // 실행되어도 무시)을 panel을 강하게 잡지 않고 달성한다.
+        selectionPanelKeyObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: panel,
             queue: .main
-        ) { _ in
+        ) { [weak self] notification in
+            guard let self, self.selectionPanel === (notification.object as? NSWindow) else { return }
             if !NSApp.isActive {
                 NSApp.activate(ignoringOtherApps: true)
             }
@@ -561,6 +579,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let monitor = selectionKeyMonitor {
             NSEvent.removeMonitor(monitor)
             selectionKeyMonitor = nil
+        }
+        if let observer = selectionPanelKeyObserver {
+            NotificationCenter.default.removeObserver(observer)
+            selectionPanelKeyObserver = nil
         }
         hidePreviewPanel()
         selectionPanel?.orderOut(nil)
