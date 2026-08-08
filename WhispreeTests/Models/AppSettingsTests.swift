@@ -85,10 +85,11 @@ final class AppSettingsTests: XCTestCase {
     }
 
     func testLLMProviderTypeCases() {
-        XCTAssertEqual(LLMProviderType.allCases.count, 3)
+        XCTAssertEqual(LLMProviderType.allCases.count, 4)
         XCTAssertEqual(LLMProviderType.none.rawValue, "없음 (원문 사용)")
         XCTAssertEqual(LLMProviderType.local.rawValue, "로컬 MLX")
         XCTAssertEqual(LLMProviderType.openai.rawValue, "OpenAI (GPT)")
+        XCTAssertEqual(LLMProviderType.groq.rawValue, "Groq Cloud")
     }
 
     // MARK: - OpenAI Models
