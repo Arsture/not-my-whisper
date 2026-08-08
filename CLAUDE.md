@@ -6,17 +6,71 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 하나의 feature/fix가 완료되면 반드시 다음을 수행:
 
-1. 기존 앱 종료 + 대기: `pkill -9 -f "Whispree.app"; sleep 1`
-2. 빌드: `xcodebuild -project Whispree.xcodeproj -scheme Whispree -destination 'platform=macOS,arch=arm64' build`
-3. /Applications로 복사 — **반드시 `ls -td`로 최신 DerivedData 선택** (`find | head -1`은 알파벳 순이라 오래된 빌드를 집어올 수 있음):
-   ```bash
-   SRC=$(ls -td ~/Library/Developer/Xcode/DerivedData/Whispree-*/Build/Products/Debug/Whispree.app | head -1)
-   rm -rf /Applications/Whispree.app && cp -R "$SRC" /Applications/
-   ```
-4. 앱 재실행: `open /Applications/Whispree.app`
-5. 커밋: feature/fix 단위로 커밋. 작업 도중에 중간 커밋하지 말 것 — 기능이 완결된 시점에만 커밋.
+**배포는 반드시 Release 빌드로 한다.** Debug 빌드를 `/Applications`에 올리지 말 것 (이유는 아래). 디버거 attach가 필요하면 배포본이 아니라 Xcode에서 Debug 스킴으로 직접 실행한다.
 
-**배포 함정 (과거 재발 이슈)**: Xcode는 빌드 설정이 바뀌면 새 DerivedData 폴더(`Whispree-<hash>`)를 만들므로 시간이 지나면 여러 폴더가 쌓임. `find ... | head -1`은 mtime이 아닌 알파벳 순이라 **최신 빌드를 놓치고 오래된 바이너리를 배포**하는 사일런트 버그 발생. 반드시 `ls -td ... | head -1`로 mtime 내림차순 정렬 사용. 배포 후 `nm Whispree.debug.dylib | xcrun swift-demangle | grep <새_심볼>` 로 최소 1회 검증 권장.
+### 배포 스크립트 (통째로 복붙)
+
+```bash
+set -e
+APP=/Applications/Whispree.app
+SYMBOL=someNewSymbol   # 이번 변경으로 새로 생긴 심볼/문자열. 옛 빌드 배포 방지용.
+
+xcodebuild -project Whispree.xcodeproj -scheme Whispree \
+  -configuration Release -destination 'platform=macOS,arch=arm64' build
+
+pkill -9 -f "Whispree.app" 2>/dev/null || true; sleep 1
+
+# ls -td (mtime 내림차순) 필수 — find|head 는 알파벳 순이라 옛 빌드를 집어온다
+SRC=$(ls -td ~/Library/Developer/Xcode/DerivedData/Whispree-*/Build/Products/Release/Whispree.app | head -1)
+rm -rf "$APP" && cp -R "$SRC" /Applications/
+
+codesign --force --deep --sign "Whispree Signing" \
+  --entitlements Whispree/Resources/Whispree.entitlements "$APP"
+
+# 검증 3종
+strings "$APP/Contents/MacOS/Whispree" | grep -c "$SYMBOL"          # 최신 빌드인가
+codesign -d -r- "$APP" 2>&1 | grep designated                        # 서명 정체성 동일한가
+codesign -d --entitlements - --xml "$APP" | plutil -convert xml1 -o - - | grep -c get-task-allow  # 0 이어야 함
+
+open "$APP"; sleep 4
+pgrep -f "Whispree.app/Contents/MacOS/Whispree" || {
+  echo "기동 실패"; ls -t ~/Library/Logs/DiagnosticReports/Whispree*.ips | head -1; }
+```
+
+커밋은 feature/fix 단위로. 작업 도중에 중간 커밋하지 말 것 — 기능이 완결된 시점에만.
+
+**첫 Release 빌드는 mlx-swift C++ 전체를 최적화 컴파일하느라 오래 걸린다.** 이후 증분 빌드는 빠르다. 백그라운드로 돌릴 때는 빌드 종료를 기다렸다가 배포까지 이어지게 `until ! pgrep -f "xcodebuild.*Release"; do sleep 5; done`로 체이닝할 것.
+
+**`pgrep` 기동 확인을 생략하지 말 것.** `open`은 프로세스가 즉시 죽어도 성공을 반환하고 `codesign --verify`도 통과한다. 실제로 이 확인이 없어서 죽은 앱을 "배포 성공"으로 보고한 이력이 있다.
+
+### 왜 Release인가 (Debug 배포가 만드는 문제 3종)
+
+1. **권한 재요청**: Debug에는 Xcode가 `com.apple.security.get-task-allow`를 자동 주입한다. macOS TCC는 **디버거가 붙을 수 있는 앱에 Accessibility 권한을 영구 저장하지 않으므로** 배포할 때마다 프롬프트가 다시 뜬다. Release에는 없다.
+2. **`--deep`이 `Contents/MacOS/*.dylib`을 서명하지 않는다**: Debug는 코드 대부분이 `Whispree.debug.dylib`에 있어서, 번들만 재서명하면 dyld가 `Library not loaded: @rpath/Whispree.debug.dylib ... different Team IDs`로 **기동 실패**한다. Release엔 이 dylib이 없다.
+3. **자체 서명 인증서로 Debug를 재서명할 수 없다**: hardened runtime의 library validation이 Team ID 없는 서명을 거부한다. Release는 검증 대상 dylib이 없어 CI와 **같은 인증서로 서명 가능** → 로컬 배포본과 Sparkle 배포본이 TCC에 **동일한 앱**이 되어 권한을 한 번만 주면 된다.
+
+**`-o runtime`을 붙이지 말 것.** hardened runtime은 library validation을 켜고, 이는 로드되는 프레임워크가 같은 Team ID로 서명됐을 것을 요구한다. `Whispree Signing`은 자체 서명이라 Team ID가 없어 `Sparkle.framework` 검증이 실패하고 앱이 `Library not loaded: @rpath/Sparkle.framework/...`로 죽는다. **`--entitlements`는 반드시 붙일 것** — 빼면 entitlements가 전부 날아간다(`--force`가 서명을 통째로 갈아엎기 때문).
+
+### 권한 프롬프트가 계속 다시 뜰 때
+
+TCC는 번들 ID가 아니라 **코드 서명 요구사항(csreq)** 으로 앱을 식별한다. 서명 정체성이 바뀌면 기존 허용 항목이 지금 바이너리와 매칭되지 않아, **System Settings에는 토글이 켜져 보이는데 실제로는 권한이 없는** 상태가 된다. 증상은 "허용해뒀는데 매번 다시 물어봄".
+
+진단:
+```bash
+sqlite3 ~/Library/Application\ Support/com.apple.TCC/TCC.db \
+  "select service, hex(csreq) from access where client like '%whispree%';"
+```
+hex를 디코드해 나오는 인증서 CN이 현재 서명(`codesign -dv /Applications/Whispree.app`)과 다르면 stale이다.
+
+해결 — 낡은 항목을 지우고 한 번만 다시 부여받는다:
+```bash
+pkill -9 -f "Whispree.app"
+for svc in Accessibility AppleEvents ScreenCapture Microphone ListenEvent PostEvent; do
+  tccutil reset "$svc" com.whispree.app
+done
+open /Applications/Whispree.app
+```
+서명 정체성을 고정해두면(위 절차대로 항상 `Whispree Signing`) 재배포·Sparkle 업데이트 후에도 권한이 유지되므로 이 초기화는 정체성을 바꿀 때만 필요하다.
 
 ## 공개 문서 사이트 (docs-site) & main 배포 게이트
 
@@ -41,7 +95,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 파일 추가/삭제 시 빌드 전 `xcodegen generate` 필수.
 
-**코드 서명 주의**: 로컬 빌드는 Xcode Automatic Signing(개발자 인증서)을 사용. CI(release.yml)는 `CODE_SIGN_IDENTITY=""` + ad-hoc(`codesign --force --deep --sign -`)으로 서명. Sparkle 자동 업데이트는 ad-hoc ↔ ad-hoc만 호환되므로, 로컬 빌드한 앱에서는 자동 업데이트가 동작하지 않음 (개발자는 git pull + 빌드로 업데이트).
+## 코드 서명 구조
+
+**2단 구조다.** 빌드는 `project.yml`의 Automatic Signing(`DEVELOPMENT_TEAM: DRDT2F8525`, `Apple Development` 인증서)으로 하고, 배포 시 자체 서명 인증서 **`Whispree Signing`**(CN=Whispree Signing, O=Arsture, 2036년 만료)으로 갈아끼운다.
+
+CI(`release.yml`)도 같은 인증서를 쓴다 — P12를 `SIGNING_CERTIFICATE_P12` secret으로 넣어 키체인에 import한 뒤 `codesign --force --deep --sign "Whispree Signing"` 실행. 로컬 배포도 같은 인증서를 쓰므로 **TCC가 로컬 빌드와 Sparkle 배포본을 동일한 앱으로 인식**한다(권한 1회 부여로 충분). ad-hoc(`--sign -`)이 아니다 — 과거 문서에 그렇게 적혀 있었으나 사실과 다르다.
+
+**알려진 갭 — CI 배포본이 entitlements와 hardened runtime을 잃는다.** `release.yml`의 서명 명령에 `--entitlements`가 없어서, `--force`가 서명을 갈아엎을 때 결과물이 **entitlements 0개 + `flags=0x0(none)`**(hardened runtime 꺼짐)이 된다. 로컬에서 동일 명령을 재현해 확인함. `project.yml`은 `ENABLE_HARDENED_RUNTIME: "YES"`와 entitlements 3개를 지정하는데 배포 단계에서 유실되는 것.
+
+지금 당장 기능이 깨지지는 않는다 — 앱이 sandbox를 쓰지 않고 hardened runtime도 함께 꺼져서 entitlement 게이트 자체가 작동하지 않기 때문이다. **문제는 함정으로 남는다는 점**: 누군가 보안 강화 차원에서 `-o runtime`을 추가하는 순간 entitlements가 없으니 AppleEvents가 **-1743으로 조용히** 죽고, 유저에겐 "붙여넣기가 그냥 안 되는" 것으로 보인다. 수정은 `--entitlements Whispree/Resources/Whispree.entitlements` 한 줄 추가(기능 변화 없음, 순수 방어). **`-o runtime`은 추가하면 안 된다** — 자체 서명 인증서는 Team ID가 없어 `Sparkle.framework` library validation에 걸려 앱이 기동하지 않는다. 되살리려면 Team ID가 있는 인증서가 필요하다.
+
+**진단 함정**: Claude Code의 Bash 샌드박스는 키체인 접근을 막아서 `security find-identity`가 인증서를 일부만 보여주고, 서명 빌드가 `No signing certificate "Mac Development" found ... team ID "DRDT2F8525"`로 실패한다. 이걸 보고 "`project.yml`의 팀 ID가 틀렸다"거나 "xcodegen이 서명 설정을 날렸다"고 **오진하지 말 것** — 서명이 필요한 명령은 `dangerouslyDisableSandbox: true`로 실행해야 한다. 참고로 인증서 CN의 괄호 값(`Apple Development: name (XXXXXXXXXX)`)은 팀 ID가 아니라 인증서 ID이며, 팀 ID는 subject의 OU 필드에 있다.
 
 ## Build & Test Commands
 

@@ -66,7 +66,8 @@
 - Imagery/iconography: mic for recording, clock/queue for pending, checkmark for inserted/copied, exclamation for failed.
 
 ## Components
-- Existing components to reuse: `TranscriptionOverlayView`, `MenuBarView`, dashboard transcription/history sections, design tokens.
+- Existing components to reuse: `TranscriptionOverlayView`, dashboard transcription/history sections, design tokens.
+  - 메뉴바 진입점은 `AppDelegate`의 `NSStatusItem`이며 전용 SwiftUI 뷰가 없다. 과거 `MenuBarView`가 있었으나 어디에도 연결되지 않은 죽은 코드여서 제거했다(2026-08-08).
 - New/changed components:
   - `RecordingJob`/`TranscriptionJob` status model.
   - Compact pending badge in overlay/menu bar.

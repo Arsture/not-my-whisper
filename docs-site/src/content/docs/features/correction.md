@@ -19,7 +19,7 @@ description: 받아쓴 텍스트를 다듬는 LLM 프로바이더 5종과 교정
 완전 로컬 교정. 텍스트 모델(Qwen3, Gemma 4, GLM 등)과 비전 모델(Qwen3-VL-4B, DiffusionGemma 26B)을 지원하며, 모델은 설정 → 모델에서 받습니다. 비전 모델을 쓰면 [화면 컨텍스트](/features/context/)를 교정에 활용할 수 있습니다. 모델별 호환성은 [모델 & 호환성](/features/models/) 참고.
 
 ### OpenAI (GPT)
-ChatGPT Responses API(SSE 스트리밍)를 사용합니다. 인증은 **Codex CLI 토큰(`~/.codex/auth.json`)을 우선** 재사용하고, 없으면 LLM 탭에서 **OpenAI 로그인**(브라우저 PKCE)으로 연결합니다. 모델: GPT-5.5(기본)·5.4·5.4 Mini·5.3 Codex·5.2. 비전 지원.
+ChatGPT Responses API(SSE 스트리밍)를 사용합니다. 인증은 **Codex CLI 토큰(`~/.codex/auth.json`)을 우선** 재사용하고, 없으면 LLM 탭에서 **OpenAI 로그인**(브라우저 PKCE)으로 연결합니다. 모델: GPT-5.6 Sol(기본)·Terra·Luna·5.5·5.4·5.4 Mini·5.3 Codex·5.2. 비전 지원.
 
 ### Groq Cloud
 OpenAI 호환 클라우드. 모델: Qwen3 32B(기본)·Llama 3.3 70B·Llama 3.1 8B·GPT-OSS 120B/20B, 그리고 **비전은 Llama 4 Scout** 만 지원. STT와 같은 Groq 키를 씁니다.

@@ -168,7 +168,7 @@ tell application "Whispree" to open location "whispree://toggle"
 
 | 프로바이더 | 모델 | 크기 | 비고 |
 |----------|------|------|------|
-| **OpenAI** | `gpt-5.5` (기본), `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.2` | ☁️ | 최고 품질 |
+| **OpenAI** | `gpt-5.6-sol` (기본), `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.2` | ☁️ | 최고 품질 |
 | **로컬 Text** | `Qwen3-1.7B-4bit` | ~940 MB | 경량, 빠른 속도 |
 | **로컬 Text** | `Qwen3-4B-Instruct-2507-4bit` (기본) | ~2.1 GB | 균형 잡힌 기본값 |
 | **로컬 Text** | `Qwen3-8B-4bit` | ~4.3 GB | 고품질 한국어 |

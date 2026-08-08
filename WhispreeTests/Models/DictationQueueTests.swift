@@ -7,7 +7,8 @@ final class DictationQueueTests: XCTestCase {
         stt: STTProviderType = .whisperKit,
         llm: LLMProviderType = .openai,
         glossary: [String] = ["API"],
-        correctionMode: CorrectionMode = .standard
+        correctionMode: CorrectionMode = .standard,
+        screenshotPasteEnabled: Bool = true
     ) -> DictationJobSnapshot {
         DictationJobSnapshot(
             sttProviderType: stt,
@@ -18,7 +19,17 @@ final class DictationQueueTests: XCTestCase {
             glossary: glossary,
             correctionMappings: [CorrectionMapping(from: "리엑트", to: "React")],
             screenshotContextEnabled: true,
-            screenshotPasteEnabled: true
+            screenshotPasteEnabled: screenshotPasteEnabled
+        )
+    }
+
+    private func makeScreenshot(imageData: Data = Data([1, 2, 3])) -> CapturedScreenshot {
+        CapturedScreenshot(
+            id: UUID(),
+            timestamp: Date(),
+            appName: "Test",
+            appBundleIdentifier: "test.bundle",
+            imageData: imageData
         )
     }
 
@@ -162,17 +173,104 @@ final class DictationQueueTests: XCTestCase {
 
     func testScreenshotSelectionWaitsUntilNoActiveRecordingAndCanSuspend() throws {
         let queue = DictationQueueState()
-        let first = try XCTUnwrap(queue.enqueue(snapshot: snapshot(), audio: .memory([1])))
+        let first = try XCTUnwrap(queue.enqueue(
+            snapshot: snapshot(),
+            audio: .memory([1]),
+            screenshots: [makeScreenshot()]
+        ))
         queue.completeSTT(jobID: first, text: "first", requiresLLM: false)
-        queue.requestScreenshotSelection(jobID: first)
         queue.setRecordingActive(true)
 
         XCTAssertNil(queue.startDeliveryIfPossible())
 
-        queue.suspendScreenshotSelectionForRecording(jobID: first)
-        XCTAssertEqual(queue.job(id: first)?.status, .readyForDelivery)
         queue.setRecordingActive(false)
         XCTAssertEqual(queue.startDeliveryIfPossible(), first)
+        XCTAssertEqual(queue.job(id: first)?.status, .awaitingScreenshotSelection)
+
+        // Starting a new recording while the selection panel is open must release the
+        // active delivery and requeue the job at the FIFO head.
+        queue.setRecordingActive(true)
+        queue.pauseActiveDeliveryForRecording(jobID: first)
+        XCTAssertEqual(queue.job(id: first)?.status, .readyForDelivery)
+        XCTAssertNil(queue.activeDeliveryJobID)
+
+        queue.setRecordingActive(false)
+        XCTAssertEqual(queue.startDeliveryIfPossible(), first)
+        XCTAssertEqual(queue.job(id: first)?.status, .awaitingScreenshotSelection)
+    }
+
+    /// Regression (US-001): a job carrying screenshots must enter delivery as
+    /// `.awaitingScreenshotSelection`, synchronously, so the projected UI state can never
+    /// publish "inserting" ahead of the selection panel and make images unattachable.
+    func testDeliveryWithScreenshotsAwaitsSelectionBeforeInserting() throws {
+        let queue = DictationQueueState()
+        let first = try XCTUnwrap(queue.enqueue(
+            snapshot: snapshot(),
+            audio: .memory([1]),
+            screenshots: [makeScreenshot()]
+        ))
+        let second = try XCTUnwrap(queue.enqueue(snapshot: snapshot(), audio: .memory([2])))
+        queue.completeSTT(jobID: first, text: "first", requiresLLM: false)
+        queue.completeSTT(jobID: second, text: "second", requiresLLM: false)
+
+        XCTAssertEqual(queue.startDeliveryIfPossible(), first)
+        XCTAssertEqual(queue.job(id: first)?.status, .awaitingScreenshotSelection)
+        XCTAssertEqual(queue.activeDeliveryJobID, first)
+        // FIFO holds while the head job is under review.
+        XCTAssertNil(queue.startDeliveryIfPossible())
+        XCTAssertEqual(queue.job(id: second)?.status, .readyForDelivery)
+
+        queue.setSelectedImages(jobID: first, images: [Data([9])])
+        queue.beginDeliveryAfterScreenshotSelection(jobID: first)
+        XCTAssertEqual(queue.job(id: first)?.status, .delivering)
+
+        queue.completeDelivery(jobID: first)
+        let delivered = try XCTUnwrap(queue.job(id: first))
+        XCTAssertEqual(delivered.status, .delivered)
+        XCTAssertTrue(delivered.screenshots.isEmpty)
+        XCTAssertEqual(queue.startDeliveryIfPossible(), second)
+        XCTAssertEqual(queue.job(id: second)?.status, .delivering)
+    }
+
+    func testDeliveryWithoutScreenshotsSkipsSelection() throws {
+        let queue = DictationQueueState()
+        let noScreenshots = try XCTUnwrap(queue.enqueue(snapshot: snapshot(), audio: .memory([1])))
+        queue.completeSTT(jobID: noScreenshots, text: "first", requiresLLM: false)
+
+        XCTAssertEqual(queue.startDeliveryIfPossible(), noScreenshots)
+        XCTAssertEqual(queue.job(id: noScreenshots)?.status, .delivering)
+    }
+
+    func testScreenshotPasteDisabledSkipsSelectionEvenWithScreenshots() throws {
+        let queue = DictationQueueState()
+        let job = try XCTUnwrap(queue.enqueue(
+            snapshot: snapshot(screenshotPasteEnabled: false),
+            audio: .memory([1]),
+            screenshots: [makeScreenshot()]
+        ))
+        queue.completeSTT(jobID: job, text: "first", requiresLLM: false)
+
+        XCTAssertEqual(queue.startDeliveryIfPossible(), job)
+        XCTAssertEqual(queue.job(id: job)?.status, .delivering)
+    }
+
+    func testCancelDuringScreenshotSelectionIsTerminalAndUnblocksFIFO() throws {
+        let queue = DictationQueueState()
+        let first = try XCTUnwrap(queue.enqueue(
+            snapshot: snapshot(),
+            audio: .memory([1]),
+            screenshots: [makeScreenshot()]
+        ))
+        let second = try XCTUnwrap(queue.enqueue(snapshot: snapshot(), audio: .memory([2])))
+        queue.completeSTT(jobID: first, text: "first", requiresLLM: false)
+        queue.completeSTT(jobID: second, text: "second", requiresLLM: false)
+        XCTAssertEqual(queue.startDeliveryIfPossible(), first)
+
+        queue.cancelJob(jobID: first)
+
+        XCTAssertEqual(queue.job(id: first)?.status, .canceled)
+        XCTAssertNil(queue.activeDeliveryJobID)
+        XCTAssertEqual(queue.startDeliveryIfPossible(), second)
     }
 
     func testCancelReleasesProviderPermitAndAdvancesFIFO() throws {
@@ -216,17 +314,10 @@ final class DictationQueueTests: XCTestCase {
 
     func testTerminalJobClearsHeavyPayloadsButKeepsTextMetadata() throws {
         let queue = DictationQueueState()
-        let screenshot = CapturedScreenshot(
-            id: UUID(),
-            timestamp: Date(),
-            appName: "Test",
-            appBundleIdentifier: "test.bundle",
-            imageData: Data([1, 2, 3])
-        )
         let first = try XCTUnwrap(queue.enqueue(
             snapshot: snapshot(),
             audio: .memory([1, 2, 3]),
-            screenshots: [screenshot]
+            screenshots: [makeScreenshot()]
         ))
         queue.completeSTT(jobID: first, text: "raw", requiresLLM: false)
         queue.setSelectedImages(jobID: first, images: [Data([4, 5, 6])])

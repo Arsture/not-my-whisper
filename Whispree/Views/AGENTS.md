@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-03-23 | Updated: 2026-06-09 -->
+<!-- Generated: 2026-03-23 | Updated: 2026-08-08 -->
 
 # Views
 
@@ -12,7 +12,6 @@ SwiftUI 뷰 레이어. 대시보드, 설정, 온보딩, 전사 오버레이, Qui
 |-----------|---------|
 | `Dashboard/` | 메인 대시보드 뷰 — `MainDashboardView.swift` |
 | `Design/` | 디자인 토큰 + 공통 UI 컴포넌트 — DesignTokens, SettingsCard, StatusBadge, CompatibilityBadge, ModelMetricsView |
-| `MenuBar/` | 메뉴바 팝오버 — `MenuBarView.swift` |
 | `Onboarding/` | 초기 설정 플로우 — `OnboardingView.swift` |
 | `QuickFix/` | Quick Fix 패널 — `QuickFixPanelView.swift` (단어/매핑 교정 입력) |
 | `Settings/` | 설정 탭 뷰 — General, STT, LLM, Model, DomainWordSets, ShortcutRecorder |

@@ -10,8 +10,11 @@
 	<string>0.0.17</string>
 	<key>CFBundleVersion</key>
 	<string>0.0.17</string>
+	<!-- 메뉴바 우선 앱: `.accessory`로 시작하고, mainWindow/onboardingWindow가 보일 때만
+	     AppDelegate가 `.regular`로 승격한다. false로 두고 런타임에 강등하면 매 실행마다
+	     (LaunchAtLogin으로 조용히 뜨는 경우 포함) Dock 아이콘이 번쩍인다. -->
 	<key>LSUIElement</key>
-	<false/>
+	<true/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Whispree uses AppleEvents to remember the active Chrome tab/input element and iTerm2 session(pane) + tmux pane before recording, so the transcribed text can be pasted back into the same location.</string>
 	<key>NSMicrophoneUsageDescription</key>

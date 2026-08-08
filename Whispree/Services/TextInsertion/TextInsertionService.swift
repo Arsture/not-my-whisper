@@ -137,11 +137,23 @@ final class TextInsertionService {
         // 영어 입력소스로 전환 (한글 모드에서 Ctrl+V 미작동 방지)
         let originalSource = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue()
         switchToASCIIInputSource()
-        try? await Task.sleep(nanoseconds: 100_000_000)
 
         let pasteboard = NSPasteboard.general
 
+        // 취소를 포함한 모든 종료 경로에서 입력소스 복원 + 클립보드 정리를 보장
+        // (originalSource 캡처 이후에만 설치 — 위 이른 return에는 적용되지 않음)
+        defer {
+            if let original = originalSource {
+                TISSelectInputSource(original)
+            }
+            pasteboard.clearContents()
+        }
+
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
         for imageData in images {
+            guard !Task.isCancelled else { break }
+
             guard let bitmapRep = NSBitmapImageRep(data: imageData),
                   let pngData = bitmapRep.representation(using: .png, properties: [:])
             else { continue }
@@ -159,14 +171,6 @@ final class TextInsertionService {
             sendPasteKey(flags: .maskCommand)
             try? await Task.sleep(nanoseconds: 600_000_000) // 0.6초 — 웹 업로드 대기
         }
-
-        // 원래 입력소스 복원
-        if let original = originalSource {
-            TISSelectInputSource(original)
-        }
-
-        // 클립보드 정리 — 마지막 이미지 데이터 남지 않도록
-        pasteboard.clearContents()
     }
 
     /// CGEvent로 V키 + 지정 modifier 전송

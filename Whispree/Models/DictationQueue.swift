@@ -141,6 +141,13 @@ struct DictationJob {
     var ownsSTTPermit: Bool
     var ownsLLMPermit: Bool
 
+    /// Whether this job must go through screenshot review before insertion.
+    /// This is queue truth, not a UI decision: delivery admission reads it synchronously
+    /// so the projected UI state can never disagree with what `deliver()` will do.
+    var needsScreenshotSelection: Bool {
+        snapshot.hasCompletedOnboarding && snapshot.screenshotPasteEnabled && !screenshots.isEmpty
+    }
+
     init(
         id: DictationJobID = UUID(),
         sequence: Int,
@@ -372,30 +379,33 @@ final class DictationQueueState {
               jobs[index].status.isDeliverable
         else { return nil }
         activeDeliveryJobID = headID
-        jobs[index].status = .delivering
+        // Screenshot review is entered here, synchronously, and not later inside the
+        // delivery task. Callers project UI state from queue truth immediately after this
+        // returns; if the job sat in `.delivering` until the async task body ran, the
+        // projection would publish "inserting" first and tear the selection panel down
+        // before the user could ever use it.
+        jobs[index].status = jobs[index].needsScreenshotSelection
+            ? .awaitingScreenshotSelection
+            : .delivering
         return headID
     }
 
-    func requestScreenshotSelection(jobID: DictationJobID) {
+    /// Screenshot review finished for the active delivery job — proceed to insertion.
+    func beginDeliveryAfterScreenshotSelection(jobID: DictationJobID) {
         guard let index = jobs.firstIndex(where: { $0.id == jobID }),
-              jobs[index].status == .readyForDelivery
-        else { return }
-        jobs[index].status = .awaitingScreenshotSelection
-    }
-
-    func suspendScreenshotSelectionForRecording(jobID: DictationJobID) {
-        guard let index = jobs.firstIndex(where: { $0.id == jobID }),
+              activeDeliveryJobID == jobID,
               jobs[index].status == .awaitingScreenshotSelection
         else { return }
-        jobs[index].selectedImages = []
-        // Preserve FIFO head and retry review after recording stops.
-        jobs[index].status = .readyForDelivery
+        jobs[index].status = .delivering
     }
 
     func pauseActiveDeliveryForRecording(jobID: DictationJobID) {
+        // `.awaitingScreenshotSelection` must be accepted here: starting a new recording
+        // while the selection panel is open goes through this path, and the job is not in
+        // `.delivering` at that point.
         guard let index = jobs.firstIndex(where: { $0.id == jobID }),
               activeDeliveryJobID == jobID,
-              jobs[index].status == .delivering
+              jobs[index].status == .delivering || jobs[index].status == .awaitingScreenshotSelection
         else { return }
         activeDeliveryJobID = nil
         jobs[index].selectedImages = []

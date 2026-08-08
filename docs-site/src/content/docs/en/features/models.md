@@ -47,5 +47,5 @@ Features you can toggle under Settings → General:
 Whispree checks for updates automatically via Sparkle. You can also check manually with **"Check for Updates…"** in the app menu.
 
 :::caution
-Auto-update only works on release (CI ad-hoc signed) builds. It does not work if you signed and built it yourself with Xcode, so developers should update via `git pull` + rebuild.
+Auto-update only works on official release builds. It does not work if you signed and built it yourself with Xcode, because the signature differs from the released build — developers should update via `git pull` + rebuild.
 :::

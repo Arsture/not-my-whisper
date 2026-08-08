@@ -87,7 +87,7 @@ final class AppSettings: ObservableObject {
 
     @RawRepresentableUserDefault(
         key: "whispree.openaiModel",
-        defaultValue: .gpt55,
+        defaultValue: .gpt56sol,
         rawAliasMap: OpenAIModel.rawAliasMap
     )
     var openaiModel: OpenAIModel

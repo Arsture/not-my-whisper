@@ -209,6 +209,12 @@ final class RecordingCoordinator: ObservableObject {
         guard deliveryTask == nil,
               let jobID = queue.startDeliveryIfPossible()
         else { return }
+        // Publish the head job's screenshots synchronously. The caller projects state right
+        // after this returns, so the selection panel can be shown before the delivery task
+        // body has had a chance to run.
+        if let job = queue.job(id: jobID), job.status == .awaitingScreenshotSelection {
+            appState.capturedScreenshots = job.screenshots
+        }
         deliveryTask = Task { [weak self] in
             await self?.deliver(jobID: jobID)
         }
@@ -320,15 +326,11 @@ final class RecordingCoordinator: ObservableObject {
         }
 
         guard var job = queue.job(id: jobID) else { return }
-        refreshProjectedState()
 
         var selectedImages: [Data] = []
-        if job.snapshot.hasCompletedOnboarding,
-           job.snapshot.screenshotPasteEnabled,
-           !job.screenshots.isEmpty
-        {
-            appState.capturedScreenshots = job.screenshots
-            appState.transcriptionState = .selectingScreenshots
+        // Whether review is needed was decided by the queue when delivery was admitted;
+        // re-deriving it from the snapshot here would let UI and queue truth drift apart.
+        if job.status == .awaitingScreenshotSelection {
             selectedImages = await withCheckedContinuation { continuation in
                 appState.screenshotSelectionCallback = { selected in
                     continuation.resume(returning: selected)
@@ -341,6 +343,7 @@ final class RecordingCoordinator: ObservableObject {
                 queue.pauseActiveDeliveryForRecording(jobID: jobID)
                 return
             }
+            queue.beginDeliveryAfterScreenshotSelection(jobID: jobID)
         }
 
         guard let latest = queue.job(id: jobID), !latest.status.isTerminal else { return }
@@ -580,11 +583,18 @@ final class RecordingCoordinator: ObservableObject {
             appState.transcriptionState = .recording
             return
         }
-        if queue.activeDeliveryJobID != nil {
-            if appState.transcriptionState == .selectingScreenshots {
-                return
+        if let activeID = queue.activeDeliveryJobID {
+            // Project from the delivery job's status, never from the UI state itself: the
+            // old self-check ran before `deliver()` could set `.selectingScreenshots` and
+            // therefore published a stale `.inserting` that closed the selection panel.
+            let projected: TranscriptionState = queue.job(id: activeID)?.status == .awaitingScreenshotSelection
+                ? .selectingScreenshots
+                : .inserting
+            // Avoid republishing the same value — a redundant `.selectingScreenshots`
+            // publish re-keys the selection panel and steals focus mid-selection.
+            if appState.transcriptionState != projected {
+                appState.transcriptionState = projected
             }
-            appState.transcriptionState = .inserting
             return
         }
         if !queue.correctingJobIDs().isEmpty {

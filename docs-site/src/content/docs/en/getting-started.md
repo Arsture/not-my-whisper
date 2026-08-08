@@ -13,7 +13,7 @@ The simplest way is **Homebrew**.
 brew tap Arsture/whispree && brew install --cask whispree
 ```
 
-A microphone icon appears in the menu bar (the Dock icon and main window show too). Whispree is not notarized with an Apple Developer ID, but **installing via Homebrew clears the Gatekeeper block automatically** and wires up auto-updates — which is why it's the recommended path.
+A microphone icon appears in the menu bar. The menu bar icon is always there; the Dock icon and the Cmd+Tab app-switcher entry appear together with the main window and disappear again once you close it — this has no effect on finding Whispree via Spotlight. Whispree is not notarized with an Apple Developer ID, but **installing via Homebrew clears the Gatekeeper block automatically** and wires up auto-updates — which is why it's the recommended path.
 
 ### Advanced: other install methods
 
