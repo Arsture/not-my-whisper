@@ -6,23 +6,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 하나의 feature/fix가 완료되면 반드시 다음을 수행:
 
+**배포는 반드시 Release 빌드로 한다.** Debug 빌드를 /Applications에 올리지 말 것 (이유는 아래).
+
 1. 기존 앱 종료 + 대기: `pkill -9 -f "Whispree.app"; sleep 1`
-2. 빌드: `xcodebuild -project Whispree.xcodeproj -scheme Whispree -destination 'platform=macOS,arch=arm64' build`
+2. 빌드: `xcodebuild -project Whispree.xcodeproj -scheme Whispree -configuration Release -destination 'platform=macOS,arch=arm64' build`
+   (첫 Release 빌드는 mlx-swift C++ 전체를 최적화 컴파일하느라 오래 걸린다. 이후 증분 빌드는 빠르다.)
 3. /Applications로 복사 — **반드시 `ls -td`로 최신 DerivedData 선택** (`find | head -1`은 알파벳 순이라 오래된 빌드를 집어올 수 있음):
    ```bash
-   SRC=$(ls -td ~/Library/Developer/Xcode/DerivedData/Whispree-*/Build/Products/Debug/Whispree.app | head -1)
+   SRC=$(ls -td ~/Library/Developer/Xcode/DerivedData/Whispree-*/Build/Products/Release/Whispree.app | head -1)
    rm -rf /Applications/Whispree.app && cp -R "$SRC" /Applications/
    ```
-4. **재서명 (필수 — 생략하면 매번 권한 재요청)**:
+4. **CI와 동일한 인증서로 재서명** (생략하면 로컬 빌드와 Sparkle 배포본이 TCC에 서로 다른 앱이 된다):
    ```bash
    codesign --force --deep --sign "Whispree Signing" \
      --entitlements Whispree/Resources/Whispree.entitlements \
      -o runtime /Applications/Whispree.app
    ```
-5. 앱 재실행: `open /Applications/Whispree.app`
+5. 앱 재실행 + **기동 확인**: `open /Applications/Whispree.app` 후 반드시
+   `pgrep -f "Whispree.app/Contents/MacOS/Whispree"`로 프로세스가 살아있는지 볼 것.
+   `open`은 프로세스가 즉시 죽어도 성공을 반환하고 `codesign --verify`도 통과하므로,
+   이 확인 없이는 "배포 성공"이 거짓이 된다. 크래시 로그: `ls -t ~/Library/Logs/DiagnosticReports/Whispree*.ips | head -1`
 6. 커밋: feature/fix 단위로 커밋. 작업 도중에 중간 커밋하지 말 것 — 기능이 완결된 시점에만 커밋.
 
-**재서명이 필수인 이유 (권한 재요청 함정)**: Debug 빌드에는 Xcode가 `com.apple.security.get-task-allow`를 자동 주입한다. macOS TCC는 **디버거가 붙을 수 있는 앱에 Accessibility 권한을 영구 저장하지 않으므로**, 이대로 배포하면 배포할 때마다 권한 프롬프트가 다시 뜬다. 또한 로컬 빌드는 `Apple Development` 인증서로, CI 배포본은 `Whispree Signing` 자체 서명 인증서로 서명되어 **TCC가 서로 다른 앱으로 인식**한다(권한을 두 번 줘야 함). 위 재서명 한 줄이 둘 다 해결한다 — `get-task-allow`가 빠지고(entitlements 파일에 없으므로), DR이 CI 배포본과 동일한 `certificate root = H"0417188c..."`가 되어 Sparkle 업데이트 후에도 권한이 유지된다. 검증: `codesign -d --entitlements - --xml /Applications/Whispree.app | plutil -convert xml1 -o - - | grep -c get-task-allow` → `0`.
+**왜 Release여야 하는가 (Debug 배포가 만드는 문제 3종)**:
+1. **권한 재요청**: Debug 빌드에는 Xcode가 `com.apple.security.get-task-allow`를 자동 주입한다. macOS TCC는 **디버거가 붙을 수 있는 앱에 Accessibility 권한을 영구 저장하지 않으므로** 배포할 때마다 권한 프롬프트가 다시 뜬다. Release에는 이 entitlement가 없다. 검증: `codesign -d --entitlements - --xml /Applications/Whispree.app | plutil -convert xml1 -o - - | grep -c get-task-allow` → `0`.
+2. **`--deep`이 `Contents/MacOS/*.dylib`을 서명하지 않는다**: Debug 빌드는 코드 대부분이 `Whispree.debug.dylib`에 들어있어서, 번들만 재서명하면 dyld가 `Library not loaded: @rpath/Whispree.debug.dylib ... different Team IDs`로 **기동 실패**한다. Release는 이 dylib이 없어 해당 없음.
+3. **자체 서명 인증서로 Debug를 재서명할 수 없다**: `-o runtime`(hardened runtime)이 library validation을 켜는데 `Whispree Signing`은 Team ID가 없어 debug dylib 검증에 실패한다. Release는 검증 대상 dylib이 없으므로 CI와 **같은 인증서로 서명 가능** → 로컬 배포본과 Sparkle 배포본이 TCC에 동일한 앱이 되어 **권한을 한 번만 주면 영구히 유지**된다.
+
+디버거 attach가 필요하면 /Applications 배포본이 아니라 Xcode에서 Debug 스킴으로 직접 실행할 것.
 
 **배포 함정 (과거 재발 이슈)**: Xcode는 빌드 설정이 바뀌면 새 DerivedData 폴더(`Whispree-<hash>`)를 만들므로 시간이 지나면 여러 폴더가 쌓임. `find ... | head -1`은 mtime이 아닌 알파벳 순이라 **최신 빌드를 놓치고 오래된 바이너리를 배포**하는 사일런트 버그 발생. 반드시 `ls -td ... | head -1`로 mtime 내림차순 정렬 사용. 배포 후 `nm Whispree.debug.dylib | xcrun swift-demangle | grep <새_심볼>` 로 최소 1회 검증 권장.
 
@@ -49,7 +60,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 파일 추가/삭제 시 빌드 전 `xcodegen generate` 필수.
 
-**코드 서명 주의**: CI(`release.yml:119`)는 ad-hoc이 아니라 **자체 서명 인증서 `Whispree Signing`**(CN=Whispree Signing, O=Arsture, 2036년 만료)으로 서명한다. P12를 `SIGNING_CERTIFICATE_P12` secret으로 넣어 CI 키체인에 import한 뒤 `codesign --force --deep --sign "Whispree Signing"`을 실행. 이 인증서는 로컬 키체인에도 있으므로, 위 배포 절차 4단계에서 **로컬 빌드도 같은 인증서로 재서명**하면 배포본과 TCC 정체성이 일치한다.
+**코드 서명 주의**: CI(`release.yml:119`)는 ad-hoc이 아니라 **자체 서명 인증서 `Whispree Signing`**(CN=Whispree Signing, O=Arsture, 2036년 만료)으로 서명한다. P12를 `SIGNING_CERTIFICATE_P12` secret으로 넣어 CI 키체인에 import한 뒤 `codesign --force --deep --sign "Whispree Signing"`을 실행. 이 인증서는 로컬 키체인에도 있고, 위 배포 절차가 Release 빌드를 같은 인증서로 재서명하므로 **로컬 배포본과 Sparkle 배포본의 TCC 정체성이 일치**한다 (권한을 한 번만 주면 됨). 단 **Debug 빌드를 이걸로 재서명하면 기동에 실패한다** — hardened runtime의 library validation이 Team ID 없는 자체 서명 인증서로 서명된 `Whispree.debug.dylib`을 거부하기 때문. 배포는 Release로만 할 것.
 
 빌드 자체는 `project.yml`의 Automatic Signing(`DEVELOPMENT_TEAM: DRDT2F8525`, `Apple Development` 인증서)을 쓰고, 배포 시 `Whispree Signing`으로 갈아끼우는 2단 구조다.
 
