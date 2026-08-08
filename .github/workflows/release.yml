@@ -116,10 +116,22 @@ jobs:
 
       - name: Code sign app bundle
         run: |
-          codesign --force --deep --sign "Whispree Signing" "${{ steps.find_app.outputs.app_path }}"
+          # --entitlements 필수: --force 는 기존 서명을 통째로 갈아엎으므로,
+          # 명시하지 않으면 project.yml 이 선언한 entitlements 3개가 전부 유실된다.
+          # (automation.apple-events 없이 hardened runtime 이 켜지면 Chrome/iTerm2
+          #  컨텍스트 복원이 -1743 으로 조용히 실패한다.)
+          # -o runtime 은 붙이지 말 것: Whispree Signing 은 자체 서명이라 Team ID 가
+          # 없고, hardened runtime 의 library validation 이 Sparkle.framework 를
+          # 거부해 앱이 기동하지 않는다.
+          codesign --force --deep --sign "Whispree Signing" \
+            --entitlements Whispree/Resources/Whispree.entitlements \
+            "${{ steps.find_app.outputs.app_path }}"
           codesign --verify --deep --strict "${{ steps.find_app.outputs.app_path }}"
           echo "Signing identity:"
           codesign -dvv "${{ steps.find_app.outputs.app_path }}" 2>&1 | grep -E "Authority|TeamIdentifier|Signature"
+          echo "Entitlements:"
+          codesign -d --entitlements - --xml "${{ steps.find_app.outputs.app_path }}" \
+            | plutil -convert xml1 -o - -
 
       - name: Create ZIP archive
         run: |
