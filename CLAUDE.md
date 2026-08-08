@@ -13,8 +13,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
    SRC=$(ls -td ~/Library/Developer/Xcode/DerivedData/Whispree-*/Build/Products/Debug/Whispree.app | head -1)
    rm -rf /Applications/Whispree.app && cp -R "$SRC" /Applications/
    ```
-4. 앱 재실행: `open /Applications/Whispree.app`
-5. 커밋: feature/fix 단위로 커밋. 작업 도중에 중간 커밋하지 말 것 — 기능이 완결된 시점에만 커밋.
+4. **재서명 (필수 — 생략하면 매번 권한 재요청)**:
+   ```bash
+   codesign --force --deep --sign "Whispree Signing" \
+     --entitlements Whispree/Resources/Whispree.entitlements \
+     -o runtime /Applications/Whispree.app
+   ```
+5. 앱 재실행: `open /Applications/Whispree.app`
+6. 커밋: feature/fix 단위로 커밋. 작업 도중에 중간 커밋하지 말 것 — 기능이 완결된 시점에만 커밋.
+
+**재서명이 필수인 이유 (권한 재요청 함정)**: Debug 빌드에는 Xcode가 `com.apple.security.get-task-allow`를 자동 주입한다. macOS TCC는 **디버거가 붙을 수 있는 앱에 Accessibility 권한을 영구 저장하지 않으므로**, 이대로 배포하면 배포할 때마다 권한 프롬프트가 다시 뜬다. 또한 로컬 빌드는 `Apple Development` 인증서로, CI 배포본은 `Whispree Signing` 자체 서명 인증서로 서명되어 **TCC가 서로 다른 앱으로 인식**한다(권한을 두 번 줘야 함). 위 재서명 한 줄이 둘 다 해결한다 — `get-task-allow`가 빠지고(entitlements 파일에 없으므로), DR이 CI 배포본과 동일한 `certificate root = H"0417188c..."`가 되어 Sparkle 업데이트 후에도 권한이 유지된다. 검증: `codesign -d --entitlements - --xml /Applications/Whispree.app | plutil -convert xml1 -o - - | grep -c get-task-allow` → `0`.
 
 **배포 함정 (과거 재발 이슈)**: Xcode는 빌드 설정이 바뀌면 새 DerivedData 폴더(`Whispree-<hash>`)를 만들므로 시간이 지나면 여러 폴더가 쌓임. `find ... | head -1`은 mtime이 아닌 알파벳 순이라 **최신 빌드를 놓치고 오래된 바이너리를 배포**하는 사일런트 버그 발생. 반드시 `ls -td ... | head -1`로 mtime 내림차순 정렬 사용. 배포 후 `nm Whispree.debug.dylib | xcrun swift-demangle | grep <새_심볼>` 로 최소 1회 검증 권장.
 
@@ -41,7 +49,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 파일 추가/삭제 시 빌드 전 `xcodegen generate` 필수.
 
-**코드 서명 주의**: 로컬 빌드는 Xcode Automatic Signing(개발자 인증서)을 사용. CI(release.yml)는 `CODE_SIGN_IDENTITY=""` + ad-hoc(`codesign --force --deep --sign -`)으로 서명. Sparkle 자동 업데이트는 ad-hoc ↔ ad-hoc만 호환되므로, 로컬 빌드한 앱에서는 자동 업데이트가 동작하지 않음 (개발자는 git pull + 빌드로 업데이트).
+**코드 서명 주의**: CI(`release.yml:119`)는 ad-hoc이 아니라 **자체 서명 인증서 `Whispree Signing`**(CN=Whispree Signing, O=Arsture, 2036년 만료)으로 서명한다. P12를 `SIGNING_CERTIFICATE_P12` secret으로 넣어 CI 키체인에 import한 뒤 `codesign --force --deep --sign "Whispree Signing"`을 실행. 이 인증서는 로컬 키체인에도 있으므로, 위 배포 절차 4단계에서 **로컬 빌드도 같은 인증서로 재서명**하면 배포본과 TCC 정체성이 일치한다.
+
+빌드 자체는 `project.yml`의 Automatic Signing(`DEVELOPMENT_TEAM: DRDT2F8525`, `Apple Development` 인증서)을 쓰고, 배포 시 `Whispree Signing`으로 갈아끼우는 2단 구조다.
+
+**진단 함정**: Claude Code의 Bash 샌드박스는 키체인 접근을 막아서 `security find-identity`가 인증서를 일부만 보여주고 서명 빌드가 `No signing certificate "Mac Development" found ... team ID "DRDT2F8525"`로 실패한다. 이걸 보고 "`project.yml`의 팀 ID가 틀렸다"고 오진하지 말 것 — 서명이 필요한 명령은 `dangerouslyDisableSandbox: true`로 실행해야 한다. 참고로 인증서 CN의 괄호 값(`Apple Development: name (XXXXXXXXXX)`)은 팀 ID가 아니라 인증서 ID이며, 팀 ID는 subject의 OU 필드에 있다.
 
 ## Build & Test Commands
 
