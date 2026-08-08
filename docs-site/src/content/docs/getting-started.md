@@ -13,7 +13,7 @@ Whispree는 **macOS 14 이상 · Apple Silicon(arm64)** 에서 동작합니다. 
 brew tap Arsture/whispree && brew install --cask whispree
 ```
 
-설치하면 메뉴바에 마이크 아이콘이 나타납니다(Dock 아이콘과 메인 윈도우도 함께). Whispree는 Apple Developer ID 공증(notarize)이 없지만, **Homebrew로 설치하면 Gatekeeper 차단을 자동으로 처리**하고 자동 업데이트도 연결되므로 가장 권장됩니다.
+설치하면 메뉴바에 마이크 아이콘이 나타납니다. 메뉴바 아이콘은 항상 떠 있고, Dock 아이콘과 Cmd+Tab 앱 전환기 항목은 메인 윈도우가 열려 있을 때만 함께 나타났다가 창을 닫으면 사라집니다 — Spotlight에서 Whispree를 찾는 데는 영향이 없습니다. Whispree는 Apple Developer ID 공증(notarize)이 없지만, **Homebrew로 설치하면 Gatekeeper 차단을 자동으로 처리**하고 자동 업데이트도 연결되므로 가장 권장됩니다.
 
 ### 고급: 다른 설치 방법
 
