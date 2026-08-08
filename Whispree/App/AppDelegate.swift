@@ -104,6 +104,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Main Menu
 
+    /// ⚠️ **이 메뉴는 실제로 화면에 표시되지 않는다.**
+    ///
+    /// 여기서 `NSApp.mainMenu` 를 대입하지만, SwiftUI 가 `applicationDidFinishLaunching`
+    /// **이후에** 자기 메뉴를 설치하므로 이쪽이 덮인다. 근거: 실행 중인 앱의 메뉴바는
+    /// Apple/Whispree/View/Window/Help 이고 Whispree 메뉴에 "Services" 가 있다 — 둘 다
+    /// 이 함수가 만들지 않는 것들이다. 반대로 이 함수가 추가하는 Edit 메뉴는 메뉴바에
+    /// 나타나지 않는다 (`setupEditKeyboardShortcuts()` 의 로컬 모니터 해킹이 존재하는 이유).
+    ///
+    /// **사용자에게 보여야 하는 메뉴 항목은 `WhispreeApp.swift` 의 `.commands` 에 넣을 것.**
+    /// 여기 추가하면 조용히 사라진다 — 실제로 "Check for Updates…" 를 이쪽으로 옮겼다가
+    /// 메뉴에서 없어진 회귀가 있었다. 이 함수는 SwiftUI 메뉴가 어떤 이유로든 설치되지
+    /// 않을 때를 위한 폴백으로만 남겨둔다.
     private func setupMainMenu() {
         let mainMenu = NSMenu()
 
@@ -112,6 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "About Whispree", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
+        // 폴백용. 실제로 표시되는 것은 WhispreeApp 의 CheckForUpdatesView 다.
         // Sparkle이 메인 메뉴 항목 전용으로 제공하는 IBAction. target을 updaterController로 두면
         // `NSMenuItemValidation`을 통해 `canCheckForUpdates` 기반 enable/disable까지 Sparkle이
         // 알아서 처리한다 — 별도 KVO/ObservableObject 배선 불필요.
