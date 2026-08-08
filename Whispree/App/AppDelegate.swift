@@ -2,6 +2,8 @@ import AppKit
 import AVFoundation
 import Combine
 import KeyboardShortcuts
+import LaunchAtLogin
+import Sparkle
 import SwiftUI
 
 @MainActor
@@ -31,17 +33,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Coordinators
     private(set) var recordingCoordinator: RecordingCoordinator!
 
+    /// Sparkle 자동 업데이트. `startingUpdater: true` 인스턴스는 앱 전체에서 **정확히 하나**여야
+    /// 한다 — 둘이면 Sparkle의 스케줄러/XPC 기구가 이중 등록된다. 메뉴의 "Check for Updates..."
+    /// 항목이 이 인스턴스를 target으로 잡으므로 여기(AppDelegate)가 소유한다.
+    private(set) var updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
+
+    /// 프로세스 수명 중 첫 `.regular` 승격 여부. 첫 승격은 신뢰할 수 없어 별도 우회가 필요하다
+    /// (`promoteToRegular()` 주석 참조).
+    private var hasActivatedOnce = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // `LaunchAtLogin.wasLaunchedAtLogin`은 `NSAppleEventManager.currentAppleEvent`를 읽으므로
+        // Apple event dispatch 중에만 유효하다 — 즉 이 메서드가 **동기적으로** 실행되는 동안에만.
+        // 반드시 최상단에서 로컬로 캡처해 아래로 전달할 것. 호출 체인 깊은 곳에서 읽으면 나중에
+        // 누군가 `await` 하나를 끼워넣는 순간 조용히 garbage(false)를 반환하게 된다.
+        let wasLaunchedAtLogin = LaunchAtLogin.wasLaunchedAtLogin
+
         setupMainMenu()
         setupEditKeyboardShortcuts()
         setupServices()
         setupStatusItem()
         setupOverlayObserver()
-        checkFirstLaunch()
+        checkFirstLaunch(wasLaunchedAtLogin: wasLaunchedAtLogin)
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag {
+        // `flag`는 overlay/selection/preview/quickFix 패널만 떠 있어도 true가 되므로 "메인 창이
+        // 보이는가"의 근거로 쓸 수 없다. Dock 가시성과 동일한 predicate로 판단한다.
+        if !hasDockVisibleWindow(excluding: nil) {
             showMainWindow()
         }
         return true
@@ -88,6 +111,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "About Whispree", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        // Sparkle이 메인 메뉴 항목 전용으로 제공하는 IBAction. target을 updaterController로 두면
+        // `NSMenuItemValidation`을 통해 `canCheckForUpdates` 기반 enable/disable까지 Sparkle이
+        // 알아서 처리한다 — 별도 KVO/ObservableObject 배선 불필요.
+        let checkForUpdatesItem = NSMenuItem(
+            title: "Check for Updates...",
+            action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+            keyEquivalent: ""
+        )
+        checkForUpdatesItem.target = updaterController
+        appMenu.addItem(checkForUpdatesItem)
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Settings...", action: #selector(openSettingsFromMenu), keyEquivalent: ",")
         appMenu.addItem(.separator())
@@ -220,11 +254,97 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showMainWindow()
     }
 
+    // MARK: - Activation Policy (Dock 아이콘 / Cmd+Tab 노출)
+
+    /// Dock 아이콘·Cmd+Tab 항목 노출 여부를 결정하는 predicate.
+    ///
+    /// **`mainWindow` / `onboardingWindow`만** 반영한다. overlay(녹음 HUD) · selection(스크린샷
+    /// 선택) · preview · quickFix 패널은 백그라운드 dictation queue의 산출물이라, 여기에 연동하면
+    /// `scheduleDelivery()`에 쿨다운이 없고 STT/LLM이 병렬로 도는 특성상 연속 받아쓰기 도중
+    /// Dock 아이콘이 깜빡인다(strobe). 자세한 근거는 `Whispree/App/AGENTS.md` 참조.
+    ///
+    /// - Parameter closingWindow: `windowWillClose(_:)` 시점엔 창이 아직 `isVisible == true`이므로
+    ///   닫히는 중인 창을 명시적으로 제외해야 한다.
+    private func hasDockVisibleWindow(excluding closingWindow: NSWindow?) -> Bool {
+        for window in [mainWindow, onboardingWindow] {
+            guard let window, window !== closingWindow else { continue }
+            if window.isVisible { return true }
+        }
+        return false
+    }
+
+    /// predicate를 다시 평가해 `.regular` / `.accessory`를 맞춘다.
+    private func updateActivationPolicy(closingWindow: NSWindow? = nil) {
+        if hasDockVisibleWindow(excluding: closingWindow) {
+            promoteToRegular()
+        } else {
+            demoteToAccessory()
+        }
+    }
+
+    /// `.regular`로 승격 — Dock 아이콘 + Cmd+Tab 항목 + 메뉴바가 나타난다.
+    /// 반드시 `makeKeyAndOrderFront` **이전에** 호출할 것. 순서가 뒤바뀌면 창이 다른 앱 뒤에서
+    /// 열리거나 메뉴바가 채워지지 않는다.
+    ///
+    /// 프로세스 수명 중 **첫 승격은 신뢰할 수 없다**. `jordanbaird/Ice`(`Ice/Main/AppState.swift`)가
+    /// 같은 문제를 겪고 쓰는 우회를 그대로 따른다: Dock을 한 번 활성화시킨 뒤 짧게 지연해 다시
+    /// 활성화한다. Ice와 동일하게 `setActivationPolicy`는 activate **이후에** 호출한다.
+    private func promoteToRegular() {
+        func activateAndPromote() {
+            if let frontApp = NSWorkspace.shared.frontmostApplication {
+                _ = NSRunningApplication.current.activate(from: frontApp)
+            } else {
+                NSApp.activate()
+            }
+            if !NSApp.setActivationPolicy(.regular) {
+                // 조용히 실패하면 앱이 `.accessory`에 영구히 갇혀 되돌아올 방법이 없다.
+                NSLog("Whispree: setActivationPolicy(.regular) 실패 — Dock 아이콘/메뉴바가 복구되지 않았을 수 있음")
+            }
+        }
+
+        if hasActivatedOnce {
+            activateAndPromote()
+            return
+        }
+        hasActivatedOnce = true
+
+        // Hack to make sure the app properly activates for the first time. (Ice)
+        _ = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first?.activate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            activateAndPromote()
+            // 지연 사이에 창이 뒤로 밀렸을 수 있으므로 한 번 더 끌어올린다.
+            guard let self else { return }
+            if let window = self.onboardingWindow ?? self.mainWindow, window.isVisible {
+                window.makeKeyAndOrderFront(nil)
+            }
+        }
+    }
+
+    /// `.accessory`로 강등 — 메뉴바 아이콘만 남는다.
+    ///
+    /// 정책만 뒤집지 말 것. 명시적으로 다음 앱에 activation을 yield하지 않으면 포커스가 정의되지
+    /// 않은 곳으로 떨어지며, 그것 자체가 우리가 고치려는 focus churn의 한 축이다.
+    private func demoteToAccessory() {
+        // `.regular` 앱으로 한정 — 백그라운드 데몬(`.prohibited`)에 yield하는 건 무의미하다.
+        let nextApp = NSWorkspace.shared.runningApplications.first {
+            $0 != .current && !$0.isTerminated && $0.activationPolicy == .regular
+        }
+        if let nextApp {
+            NSApp.yieldActivation(to: nextApp)
+        } else {
+            NSApp.deactivate()
+        }
+        if !NSApp.setActivationPolicy(.accessory) {
+            NSLog("Whispree: setActivationPolicy(.accessory) 실패 — Dock 아이콘이 남아있을 수 있음")
+        }
+    }
+
     // MARK: - Main Window (Unified)
 
     func showMainWindow() {
         if let mainWindow, mainWindow.isVisible {
             mainWindow.level = .normal
+            promoteToRegular()
             mainWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
@@ -251,18 +371,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .environmentObject(hotkeyManager)
                 .environmentObject(modelManager)
         )
+        // 창이 닫히면 predicate를 다시 평가해 `.accessory`로 돌아가기 위한 close 감지.
+        // `isReleasedWhenClosed = false` + 강한 프로퍼티 보유라 창은 nil이 되지 않으므로
+        // 별도의 close 훅 없이는 강등 시점을 알 수 없다. delegate는 weak라 leak 없음.
+        window.delegate = self
+        mainWindow = window
+        promoteToRegular()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        mainWindow = window
     }
 
     // MARK: - Onboarding
 
-    private func checkFirstLaunch() {
+    /// - Parameter wasLaunchedAtLogin: `applicationDidFinishLaunching` 최상단에서 캡처한 값.
+    ///   여기서 `LaunchAtLogin.wasLaunchedAtLogin`을 직접 읽으면 안 된다 (위 주석 참조).
+    private func checkFirstLaunch(wasLaunchedAtLogin: Bool) {
         if !appState.settings.hasCompletedOnboarding {
+            // 온보딩은 권한 설정이 필수라 로그인 실행이어도 반드시 표시한다.
             showOnboarding()
         } else {
-            showMainWindow()
+            // 로그인 항목으로 조용히 뜬 경우엔 창을 띄우지 않는다 — 메뉴바 전용으로 시작.
+            if !wasLaunchedAtLogin {
+                showMainWindow()
+            }
             Task {
                 await modelManager.loadModelsIfAvailable()
             }
@@ -296,9 +427,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .environmentObject(appState)
             .environmentObject(hotkeyManager)
         )
+        window.delegate = self
+        onboardingWindow = window
+        promoteToRegular()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        onboardingWindow = window
     }
 
     // MARK: - Quick Fix
@@ -641,5 +774,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         previewPanel?.orderOut(nil)
         previewPanel = nil
         hotkeyManager.eventTapService.isPreviewOpen = false
+    }
+}
+
+// MARK: - NSWindowDelegate (Dock 가시성 재평가)
+
+extension AppDelegate: NSWindowDelegate {
+    /// `mainWindow` / `onboardingWindow`가 닫힐 때 activation policy predicate를 다시 평가한다.
+    /// 두 창 모두 `isReleasedWhenClosed = false`이고 강한 프로퍼티가 잡고 있어 nil이 되지 않으므로,
+    /// 이 훅 없이는 "창이 전부 닫혔다"를 알 방법이 없다.
+    ///
+    /// delegate 방식을 쓰는 이유: `NotificationCenter` 옵저버는 토큰 보관/제거가 필요하고 이 파일은
+    /// 직전에 같은 종류의 옵저버 leak을 고친 이력이 있다. `NSWindow.delegate`는 weak이므로 leak이
+    /// 구조적으로 불가능하다.
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        guard window === mainWindow || window === onboardingWindow else { return }
+
+        if window === onboardingWindow {
+            onboardingWindow = nil
+        }
+        // willClose 시점엔 `window.isVisible`이 아직 true이므로 명시적으로 제외한다.
+        updateActivationPolicy(closingWindow: window)
     }
 }
