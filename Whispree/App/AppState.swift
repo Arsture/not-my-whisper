@@ -233,6 +233,24 @@ final class AppState: ObservableObject {
                 } catch {
                     llmModelState = .error(error.localizedDescription)
                 }
+            case .openaiCompatible:
+                let provider = OpenAICompatibleProvider(
+                    baseURL: settings.openaiCompatibleBaseURL,
+                    apiKey: settings.openaiCompatibleAPIKey,
+                    modelId: settings.openaiCompatibleModelId,
+                    supportsVision: settings.openaiCompatibleSupportsVision
+                )
+                llmProvider = provider
+                if provider.supportsVision {
+                    settings.isScreenshotContextEnabled = true
+                }
+                do {
+                    try await provider.setup()
+                    let validation = provider.validate()
+                    llmModelState = validation.isValid ? .ready : .error(validation.message)
+                } catch {
+                    llmModelState = .error(error.localizedDescription)
+                }
         }
     }
 

@@ -454,6 +454,8 @@ struct MainDashboardView: View {
                 let spec = LocalModelSpec.find(appState.settings.llmModelId)
                 return spec?.capability == .vision ? "eye" : "text.badge.checkmark"
             case .openai: return "globe"
+            case .openaiCompatible:
+                return appState.settings.openaiCompatibleSupportsVision ? "eye" : "globe"
             case .groq:
                 return appState.settings.groqLLMModel.supportsVision ? "eye" : "bolt.horizontal.fill"
         }

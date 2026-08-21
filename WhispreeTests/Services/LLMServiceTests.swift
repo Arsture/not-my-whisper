@@ -106,4 +106,50 @@ final class LLMServiceTests: XCTestCase {
         // OpenAIProvider requires auth services — just check the property exists
         XCTAssertTrue(true, "OpenAIProvider.supportsVision is declared as true")
     }
+
+    // MARK: - OpenAICompatibleProvider
+
+    func testOpenAICompatibleProviderValidate() {
+        let empty = OpenAICompatibleProvider(baseURL: "", apiKey: "", modelId: "", supportsVision: false)
+        XCTAssertFalse(empty.isReady)
+
+        let noModel = OpenAICompatibleProvider(
+            baseURL: "https://example.com/v1", apiKey: "key", modelId: "", supportsVision: false
+        )
+        XCTAssertFalse(noModel.isReady)
+
+        let ok = OpenAICompatibleProvider(
+            baseURL: "https://example.com/v1", apiKey: "key", modelId: "test-model", supportsVision: false
+        )
+        XCTAssertTrue(ok.isReady)
+    }
+
+    /// 실제 OpenAI-compatible 엔드포인트 호출. `WHISPREE_COMPAT_TEST_BASE_URL` /
+    /// `WHISPREE_COMPAT_TEST_API_KEY` / `WHISPREE_COMPAT_TEST_MODEL` 환경변수가
+    /// 모두 설정된 경우에만 실행 (CI/로컬 선택적 스모크 테스트).
+    func testOpenAICompatibleProviderLiveCorrection() async throws {
+        guard let baseURL = ProcessInfo.processInfo.environment["WHISPREE_COMPAT_TEST_BASE_URL"],
+              let apiKey = ProcessInfo.processInfo.environment["WHISPREE_COMPAT_TEST_API_KEY"],
+              let model = ProcessInfo.processInfo.environment["WHISPREE_COMPAT_TEST_MODEL"]
+        else {
+            throw XCTSkip("Live endpoint env vars not set")
+        }
+
+        let provider = OpenAICompatibleProvider(
+            baseURL: baseURL, apiKey: apiKey, modelId: model, supportsVision: false
+        )
+        XCTAssertTrue(provider.isReady)
+
+        let result = try await provider.correct(
+            text: "이거 L&M 모델이 되개 잘하거든",
+            systemPrompt: "음성 인식 오류를 교정하세요. 교정된 텍스트만 출력하세요.",
+            glossary: ["LLM"]
+        )
+        XCTAssertFalse(result.isEmpty)
+        XCTAssertLessThanOrEqual(
+            LocalTextProvider.wordEditDistance("이거 L&M 모델이 되개 잘하거든", result),
+            0.5,
+            "교정 결과는 원문과 유사해야 함 (환각 시 원문 반환되므로 항상 통과해야 함)"
+        )
+    }
 }
