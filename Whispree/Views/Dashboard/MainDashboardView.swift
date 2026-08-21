@@ -406,6 +406,17 @@ struct MainDashboardView: View {
                                     .foregroundStyle(DesignTokens.accentPrimary)
                             }
                         }
+                    } else if appState.settings.llmProviderType == .openaiCompatible {
+                        HStack(spacing: 4) {
+                            Text(appState.settings.openaiCompatibleModelId)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            if appState.settings.openaiCompatibleSupportsVision {
+                                Image(systemName: "eye")
+                                    .font(.caption2)
+                                    .foregroundStyle(DesignTokens.accentPrimary)
+                            }
+                        }
                     } else if appState.settings.llmProviderType == .groq {
                         HStack(spacing: 4) {
                             Text(appState.settings.groqLLMModel.displayName)

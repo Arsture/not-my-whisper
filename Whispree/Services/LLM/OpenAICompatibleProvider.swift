@@ -37,13 +37,6 @@ final class OpenAICompatibleProvider: LLMProvider {
     func setup() async throws {}
     func teardown() async {}
 
-    func updateEndpoint(baseURL: String, apiKey: String, modelId: String, supportsVision: Bool) {
-        self.baseURL = Self.normalizeBaseURL(baseURL)
-        self.apiKey = apiKey
-        self.modelId = modelId
-        self.supportsVisionOverride = supportsVision
-    }
-
     func correct(
         text: String,
         systemPrompt: String,
@@ -160,11 +153,15 @@ final class OpenAICompatibleProvider: LLMProvider {
     }
 
     /// Qwen3 등의 `<think>...</think>` 블록 제거.
+    /// 미종결 블록(길이 제한/에러로 `</think>` 없이 끝남)도 처리 — GroqLLMProvider와 동일 동작.
     private static func stripThinkBlock(_ text: String) -> String {
-        guard let startRange = text.range(of: "<think>"),
-              let endRange = text.range(of: "</think>")
-        else { return text }
-        return text.replacingCharacters(in: startRange.lowerBound..<endRange.upperBound, with: "")
+        if let end = text.range(of: "</think>") {
+            return String(text[end.upperBound...])
+        }
+        if text.hasPrefix("<think>") {
+            return ""
+        }
+        return text
     }
 
     /// 마크다운 코드 펜스 (```...```) 제거.

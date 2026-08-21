@@ -1,6 +1,6 @@
 ---
 title: AI 교정
-description: 받아쓴 텍스트를 다듬는 LLM 프로바이더 5종과 교정 모드 4종, 커스텀 프롬프트.
+description: 받아쓴 텍스트를 다듬는 LLM 프로바이더 6종과 교정 모드 4종, 커스텀 프롬프트.
 ---
 
 받아쓴 원문을 AI가 다듬어 줍니다 — 띄어쓰기·문장부호·오인식 단어 교정부터, 필러 제거와 구조화까지. 설정 → LLM에서 **프로바이더**와 **교정 모드**를 고릅니다. 기본값은 **없음(원문 그대로)** 이라, 교정이 필요할 때만 켜면 됩니다.
@@ -12,6 +12,7 @@ description: 받아쓴 텍스트를 다듬는 LLM 프로바이더 5종과 교정
 | **없음 (원문 사용)** *(기본)* | — | — | 없음. 받아쓴 그대로 삽입 |
 | **로컬 MLX** | 로컬 (Apple Silicon) | 모델에 따라 | 모델 다운로드. 일부 MoE 모델은 `uv` 필요 |
 | **OpenAI (GPT)** | 클라우드 | ✅ | Codex CLI 토큰 또는 OpenAI 로그인 |
+| **OpenAI 호환 API** | 클라우드/로컬 | 토글 | Base URL (+ API Key, 로컬 서버는 생략 가능) |
 | **Groq Cloud** | 클라우드 | Llama 4 Scout만 | Groq API 키(STT와 공유) |
 | **Claude (구독)** | 로컬 `claude` CLI 경유 | ✅ | Claude Code CLI 설치 + 로그인 |
 
@@ -20,6 +21,9 @@ description: 받아쓴 텍스트를 다듬는 LLM 프로바이더 5종과 교정
 
 ### OpenAI (GPT)
 ChatGPT Responses API(SSE 스트리밍)를 사용합니다. 인증은 **Codex CLI 토큰(`~/.codex/auth.json`)을 우선** 재사용하고, 없으면 LLM 탭에서 **OpenAI 로그인**(브라우저 PKCE)으로 연결합니다. 모델: GPT-5.6 Sol(기본)·Terra·Luna·5.5·5.4·5.4 Mini·5.3 Codex·5.2. 비전 지원.
+
+### OpenAI 호환 API
+`POST {Base URL}/chat/completions`을 지원하는 모든 엔드포인트에서 동작합니다 — OpenRouter, DeepSeek, Together, vLLM, Ollama, LM Studio 등. **Base URL**(`/v1` 포함)과 **모델 ID**를 직접 입력하고, 필요하면 **API Key**를 넣습니다(로컬 서버는 생략 가능). 모델이 이미지 입력을 지원하면 **Vision 지원 모델** 토글을 켜서 화면 컨텍스트를 활용하세요.
 
 ### Groq Cloud
 OpenAI 호환 클라우드. 모델: Qwen3 32B(기본)·Llama 3.3 70B·Llama 3.1 8B·GPT-OSS 120B/20B, 그리고 **비전은 Llama 4 Scout** 만 지원. STT와 같은 Groq 키를 씁니다.
