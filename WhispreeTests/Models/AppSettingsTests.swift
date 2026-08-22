@@ -231,6 +231,44 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(s2.openaiCompatibleSupportsVision)
     }
 
+    func testUserSelectionsPersistAcrossInstances() {
+        let first = makeSettings()
+        first.recordingMode = .toggle
+        first.language = .english
+        first.sttProviderType = .groq
+        first.llmProviderType = .openaiCompatible
+        first.isLLMEnabled = true
+        first.correctionMode = .structured
+        first.customLLMPrompt = "사용자 지정 교정 프롬프트"
+        first.hasCompletedOnboarding = true
+        first.launchAtLogin = true
+        first.showOverlay = false
+        first.isScreenshotContextEnabled = true
+        first.isScreenshotPasteEnabled = true
+        first.vadEnabled = false
+        first.pauseMediaDuringRecording = false
+        first.restoreBrowserTab = false
+        first.restoreTerminalContext = false
+
+        let restored = makeSettings()
+        XCTAssertEqual(restored.recordingMode, .toggle)
+        XCTAssertEqual(restored.language, .english)
+        XCTAssertEqual(restored.sttProviderType, .groq)
+        XCTAssertEqual(restored.llmProviderType, .openaiCompatible)
+        XCTAssertTrue(restored.isLLMEnabled)
+        XCTAssertEqual(restored.correctionMode, .structured)
+        XCTAssertEqual(restored.customLLMPrompt, "사용자 지정 교정 프롬프트")
+        XCTAssertTrue(restored.hasCompletedOnboarding)
+        XCTAssertTrue(restored.launchAtLogin)
+        XCTAssertFalse(restored.showOverlay)
+        XCTAssertTrue(restored.isScreenshotContextEnabled)
+        XCTAssertTrue(restored.isScreenshotPasteEnabled)
+        XCTAssertFalse(restored.vadEnabled)
+        XCTAssertFalse(restored.pauseMediaDuringRecording)
+        XCTAssertFalse(restored.restoreBrowserTab)
+        XCTAssertFalse(restored.restoreTerminalContext)
+    }
+
     func testInjectedStoreDoesNotMutateAnotherDefaultsDomain() {
         let otherSuiteName = "com.whispree.app.tests.ProductionSurrogate"
         guard let otherStore = UserDefaults(suiteName: otherSuiteName) else {
