@@ -121,6 +121,7 @@ final class DictationQueueTests: XCTestCase {
         XCTAssertEqual(DictationProviderConcurrencyPolicy.limits(sttProvider: .whisperKit, llmProvider: .local), .init(sttLimit: 1, llmLimit: 1))
         XCTAssertEqual(DictationProviderConcurrencyPolicy.limits(sttProvider: .mlxAudio, llmProvider: .local).sttLimit, 1)
         XCTAssertEqual(DictationProviderConcurrencyPolicy.limits(sttProvider: .groq, llmProvider: .openai), .init(sttLimit: 2, llmLimit: 2))
+        XCTAssertEqual(DictationProviderConcurrencyPolicy.limits(sttProvider: .groq, llmProvider: .openaiCompatible), .init(sttLimit: 2, llmLimit: 2))
     }
 
     func testDeliveryWaitsForEarlierJobWhenLaterFinishesFirst() throws {

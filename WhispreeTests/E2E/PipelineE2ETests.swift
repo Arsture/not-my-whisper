@@ -177,12 +177,45 @@ final class PipelineE2ETests: XCTestCase {
 
     // MARK: - US-004: AppState Provider Switching
 
-    func testAppStateLLMProviderSwitchNone() async {
-        let appState = AppState()
+    func testAppStateLLMProviderSwitchNone() async throws {
+        let context = try makeIsolatedAppState()
+        defer { context.cleanup() }
+        let appState = context.appState
         await appState.switchLLMProvider(to: .none)
         XCTAssertNotNil(appState.llmProvider)
         XCTAssertEqual(appState.llmProvider?.name, "없음 (원문 사용)")
         XCTAssertTrue(appState.llmProvider?.isReady ?? false)
+    }
+
+    func testAppStateLLMProviderSwitchOpenAICompatible() async throws {
+        let context = try makeIsolatedAppState()
+        defer { context.cleanup() }
+        let appState = context.appState
+        appState.settings.llmProviderType = .openaiCompatible
+        appState.settings.openaiCompatibleBaseURL = "http://localhost:11434/v1"
+        appState.settings.openaiCompatibleAPIKey = ""
+        appState.settings.openaiCompatibleModelId = "local-model"
+        appState.settings.openaiCompatibleSupportsVision = true
+
+        await appState.switchLLMProvider(to: .openaiCompatible)
+
+        XCTAssertTrue(appState.llmProvider is OpenAICompatibleProvider)
+        XCTAssertEqual(appState.llmProvider?.name, "OpenAI 호환 API")
+        XCTAssertTrue(appState.llmProvider?.isReady ?? false)
+        XCTAssertTrue(appState.llmProvider?.supportsVision ?? false)
+        XCTAssertTrue(appState.settings.isScreenshotContextEnabled)
+        XCTAssertTrue(appState.llmModelState.isReady)
+    }
+
+    private func makeIsolatedAppState() throws -> (appState: AppState, cleanup: () -> Void) {
+        let suiteName = "com.whispree.app.tests.Pipeline"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        let settings = AppSettings(store: defaults, migrateHotkeys: false)
+        return (
+            AppState(settings: settings),
+            { defaults.removePersistentDomain(forName: suiteName) }
+        )
     }
 
     // MARK: - US-004: Full Pipeline

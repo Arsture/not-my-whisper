@@ -217,7 +217,7 @@ struct DictationProviderConcurrencyPolicy: Equatable {
         let llmLimit: Int = switch llmProvider {
         case .none: Int.max / 4
         case .local: 1
-        case .openai, .groq: 2
+        case .openai, .openaiCompatible, .groq: 2
         }
 
         return Self(sttLimit: sttLimit, llmLimit: llmLimit)

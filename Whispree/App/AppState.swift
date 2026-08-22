@@ -100,12 +100,13 @@ final class AppState: ObservableObject {
         sttProvider?.isReady ?? false
     }
 
-    init() {
-        self.settings = AppSettings()
+    init(settings: AppSettings? = nil) {
+        let resolvedSettings = settings ?? AppSettings()
+        self.settings = resolvedSettings
 
         // settings/authService/oauthService의 @Published 변경을 AppState로 전파
         // (SwiftUI가 중첩 ObservableObject 변경을 자동 감지하지 않으므로)
-        settings.objectWillChange.sink { [weak self] _ in
+        resolvedSettings.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }.store(in: &authCancellables)
 
@@ -128,8 +129,8 @@ final class AppState: ObservableObject {
         }.store(in: &authCancellables)
 
         // 공유 사전 import (앱 시작 시 1회)
-        settings.importSharedDictionary()
-        lastSyncedDomainWordSetsHash = settings.domainWordSets.hashValue
+        resolvedSettings.importSharedDictionary()
+        lastSyncedDomainWordSetsHash = resolvedSettings.domainWordSets.hashValue
 
         loadHistory()
     }
@@ -221,6 +222,24 @@ final class AppState: ObservableObject {
                 let provider = GroqLLMProvider(
                     model: settings.groqLLMModel,
                     apiKey: settings.groqApiKey
+                )
+                llmProvider = provider
+                if provider.supportsVision {
+                    settings.isScreenshotContextEnabled = true
+                }
+                do {
+                    try await provider.setup()
+                    let validation = provider.validate()
+                    llmModelState = validation.isValid ? .ready : .error(validation.message)
+                } catch {
+                    llmModelState = .error(error.localizedDescription)
+                }
+            case .openaiCompatible:
+                let provider = OpenAICompatibleProvider(
+                    baseURL: settings.openaiCompatibleBaseURL,
+                    apiKey: settings.openaiCompatibleAPIKey,
+                    modelId: settings.openaiCompatibleModelId,
+                    supportsVision: settings.openaiCompatibleSupportsVision
                 )
                 llmProvider = provider
                 if provider.supportsVision {

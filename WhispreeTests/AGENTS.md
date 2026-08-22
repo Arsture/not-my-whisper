@@ -35,6 +35,7 @@ xcodebuild -project Whispree.xcodeproj -scheme Whispree -destination 'platform=m
 
 ### Working In This Directory
 - E2E 테스트는 실제 모델을 다운로드/로딩 — CI에서 첫 실행 시 시간 소요
+- `AppSettings`/`AppState` 테스트에서 `UserDefaults.standard` 사용 금지. 테스트 호스트가 production bundle ID로 실행되므로 고유 suite를 만들어 `AppSettings(store:migrateHotkeys: false)`로 주입하고 종료 시 해당 persistent domain만 제거한다.
 - `LLMServiceTests`는 `LocalTextProvider.wordEditDistance()` 직접 테스트 (LLMService 삭제됨)
 - `Coordinators/` 디렉토리는 현재 비어있음 — RecordingCoordinator integration 테스트 추가 가능 영역
 - Queue/ESC/FIFO behavior 변경 시 최소 `DictationQueueTests`를 먼저 업데이트하고 `xcodebuild ... -only-testing:WhispreeTests/DictationQueueTests test`로 빠르게 검증

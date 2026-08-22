@@ -11,10 +11,12 @@ import KeyboardShortcuts
 /// - **변경 전파**: wrapper의 setter가 `objectWillChange.send()`를 자동 호출 →
 ///   SwiftUI 뷰가 변경을 자동 감지.
 /// - **저장**: wrapper가 내부적으로 UserDefaults에 set/remove를 수행하므로 `save()` 호출 불필요.
-/// - **마이그레이션**: `init()` 첫 줄에서 `migrateLegacyBlobIfNeeded()` 호출 →
+/// - **마이그레이션**: 초기화 시 주입된 store에서 `migrateLegacyBlobIfNeeded()` 호출 →
 ///   기존 `"WhispreeSettings"` JSON blob을 각 필드 키로 분해 저장 후 blob 삭제.
 @MainActor
-final class AppSettings: ObservableObject {
+final class AppSettings: ObservableObject, UserDefaultsStoreProviding {
+
+    nonisolated let userDefaultsStore: UserDefaults
 
     // MARK: - Recording
 
@@ -98,6 +100,23 @@ final class AppSettings: ObservableObject {
     )
     var groqLLMModel: GroqLLMModel
 
+    // MARK: - OpenAI-compatible API
+
+    /// `/v1` 포함 base URL. 예: `https://api.openai.com/v1`, `http://localhost:11434/v1`
+    @UserDefault(key: "whispree.openaiCompatibleBaseURL", defaultValue: "")
+    var openaiCompatibleBaseURL: String
+
+    @UserDefault(key: "whispree.openaiCompatibleAPIKey", defaultValue: "")
+    var openaiCompatibleAPIKey: String
+
+    /// 자유 문자열 모델 ID — 호환 엔드포인트마다 목록이 다름
+    @UserDefault(key: "whispree.openaiCompatibleModelId", defaultValue: "")
+    var openaiCompatibleModelId: String
+
+    /// 엔드포인트의 vision 지원 여부는 자동 감지 불가 → 사용자가 지정
+    @UserDefault(key: "whispree.openaiCompatibleSupportsVision", defaultValue: false)
+    var openaiCompatibleSupportsVision: Bool
+
     // MARK: - Screenshot context
 
     @UserDefault(key: "whispree.isScreenshotContextEnabled", defaultValue: false)
@@ -170,16 +189,19 @@ final class AppSettings: ObservableObject {
 
     // MARK: - Init
 
-    init() {
-        Self.migrateLegacyBlobIfNeeded()
-        migrateHotkeysIfNeeded()
+    init(store: UserDefaults = .standard, migrateHotkeys: Bool = true) {
+        userDefaultsStore = store
+        Self.migrateLegacyBlobIfNeeded(store: store)
+        if migrateHotkeys {
+            migrateHotkeysIfNeeded()
+        }
         runFieldMigrations()
     }
 
     /// KeyboardShortcuts 라이브러리 저장소 → AppSettings.toggleRecordingShortcut/quickFixShortcut로 1회성 마이그레이션.
     /// 유저가 기존에 커스텀 단축키를 설정했다면 그 값을 가져오고, 아니면 default 유지.
     private func migrateHotkeysIfNeeded() {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaultsStore
         let flagKey = "whispree.hotkeyMigrationDone"
         guard !defaults.bool(forKey: flagKey) else { return }
 
@@ -244,8 +266,7 @@ final class AppSettings: ObservableObject {
     /// - 성공 시: blob 삭제 → 이후엔 wrapper만 동작.
     /// - 디코드 실패 시: `whispree.legacyMigrationFailed = true` 플래그 → 재시도 방지.
     /// - 부분 실패 (crash 등): 다음 부팅에서 idempotent 재실행 (blob이 남아있으므로).
-    static func migrateLegacyBlobIfNeeded() {
-        let defaults = UserDefaults.standard
+    static func migrateLegacyBlobIfNeeded(store defaults: UserDefaults = .standard) {
         let legacyKey = "WhispreeSettings"
         let migrationFailedKey = "whispree.legacyMigrationFailed"
 
@@ -278,6 +299,10 @@ final class AppSettings: ObservableObject {
         defaults.set(legacy.groqApiKey, forKey: "whispree.groqApiKey")
         defaults.set(legacy.audioInputChannel, forKey: "whispree.audioInputChannel")
         defaults.set(legacy.vadEnabled, forKey: "whispree.vadEnabled")
+        defaults.set(legacy.openaiCompatibleBaseURL, forKey: "whispree.openaiCompatibleBaseURL")
+        defaults.set(legacy.openaiCompatibleAPIKey, forKey: "whispree.openaiCompatibleAPIKey")
+        defaults.set(legacy.openaiCompatibleModelId, forKey: "whispree.openaiCompatibleModelId")
+        defaults.set(legacy.openaiCompatibleSupportsVision, forKey: "whispree.openaiCompatibleSupportsVision")
         if let wordSetsData = try? JSONEncoder().encode(legacy.domainWordSets) {
             defaults.set(wordSetsData, forKey: "whispree.domainWordSets")
         }
@@ -311,6 +336,10 @@ private struct LegacyAppSettings: Codable {
     var isScreenshotContextEnabled: Bool = false
     var isScreenshotPasteEnabled: Bool = true
     var groqApiKey: String = ""
+    var openaiCompatibleBaseURL: String = ""
+    var openaiCompatibleAPIKey: String = ""
+    var openaiCompatibleModelId: String = ""
+    var openaiCompatibleSupportsVision: Bool = false
     var audioInputChannel: Int = 0
     var vadEnabled: Bool = true
     var domainWordSets: [DomainWordSet] = []
@@ -334,6 +363,10 @@ private struct LegacyAppSettings: Codable {
         self.isScreenshotContextEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .isScreenshotContextEnabled)) ?? false
         self.isScreenshotPasteEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .isScreenshotPasteEnabled)) ?? true
         self.groqApiKey = (try? c.decodeIfPresent(String.self, forKey: .groqApiKey)) ?? ""
+        self.openaiCompatibleBaseURL = (try? c.decodeIfPresent(String.self, forKey: .openaiCompatibleBaseURL)) ?? ""
+        self.openaiCompatibleAPIKey = (try? c.decodeIfPresent(String.self, forKey: .openaiCompatibleAPIKey)) ?? ""
+        self.openaiCompatibleModelId = (try? c.decodeIfPresent(String.self, forKey: .openaiCompatibleModelId)) ?? ""
+        self.openaiCompatibleSupportsVision = (try? c.decodeIfPresent(Bool.self, forKey: .openaiCompatibleSupportsVision)) ?? false
         self.audioInputChannel = (try? c.decodeIfPresent(Int.self, forKey: .audioInputChannel)) ?? 0
         self.vadEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .vadEnabled)) ?? true
         self.domainWordSets = (try? c.decodeIfPresent([DomainWordSet].self, forKey: .domainWordSets)) ?? []
@@ -360,6 +393,7 @@ enum LLMProviderType: String, Codable, CaseIterable {
     case none = "없음 (원문 사용)"
     case local = "로컬 MLX"
     case openai = "OpenAI (GPT)"
+    case openaiCompatible = "OpenAI 호환 API"
     case groq = "Groq Cloud"
 
     var displayName: String {
@@ -367,6 +401,7 @@ enum LLMProviderType: String, Codable, CaseIterable {
             case .none: "없음 (원문 사용)"
             case .local: "로컬 MLX"
             case .openai: "OpenAI (GPT)"
+            case .openaiCompatible: "OpenAI 호환 API"
             case .groq: "Groq Cloud"
         }
     }

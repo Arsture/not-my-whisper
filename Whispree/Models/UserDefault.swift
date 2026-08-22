@@ -1,6 +1,19 @@
 import Combine
 import Foundation
 
+protocol UserDefaultsStoreProviding: AnyObject {
+    var userDefaultsStore: UserDefaults { get }
+}
+
+private func resolvedUserDefaultsStore(
+    explicitStore: UserDefaults?,
+    enclosingInstance: AnyObject
+) -> UserDefaults {
+    explicitStore
+        ?? (enclosingInstance as? UserDefaultsStoreProviding)?.userDefaultsStore
+        ?? .standard
+}
+
 // MARK: - PropertyListValue marker
 
 /// UserDefaults에 직접 저장 가능한 plist 타입 마커.
@@ -36,12 +49,12 @@ extension Optional: _OptionalProtocol {
 public struct UserDefault<Value: PropertyListValue> {
     public let key: String
     public let defaultValue: Value
-    private let store: UserDefaults
+    private let store: UserDefaults?
 
     public init(
         key: String,
         defaultValue: Value,
-        store: UserDefaults = .standard
+        store: UserDefaults? = nil
     ) {
         self.key = key
         self.defaultValue = defaultValue
@@ -61,17 +74,25 @@ public struct UserDefault<Value: PropertyListValue> {
     ) -> Value where EnclosingSelf.ObjectWillChangePublisher == ObservableObjectPublisher {
         get {
             let w = instance[keyPath: storageKP]
-            let raw = w.store.object(forKey: w.key)
+            let store = resolvedUserDefaultsStore(
+                explicitStore: w.store,
+                enclosingInstance: instance
+            )
+            let raw = store.object(forKey: w.key)
             if raw == nil { return w.defaultValue }
             return (raw as? Value) ?? w.defaultValue
         }
         set {
             instance.objectWillChange.send()
             let w = instance[keyPath: storageKP]
+            let store = resolvedUserDefaultsStore(
+                explicitStore: w.store,
+                enclosingInstance: instance
+            )
             if let opt = newValue as? _OptionalProtocol, opt._isNil {
-                w.store.removeObject(forKey: w.key)
+                store.removeObject(forKey: w.key)
             } else {
-                w.store.set(newValue, forKey: w.key)
+                store.set(newValue, forKey: w.key)
             }
         }
     }
@@ -90,13 +111,13 @@ public struct RawRepresentableUserDefault<Value: RawRepresentable>
     public let key: String
     public let defaultValue: Value
     public let rawAliasMap: [Value.RawValue: Value.RawValue]
-    private let store: UserDefaults
+    private let store: UserDefaults?
 
     public init(
         key: String,
         defaultValue: Value,
         rawAliasMap: [Value.RawValue: Value.RawValue] = [:],
-        store: UserDefaults = .standard
+        store: UserDefaults? = nil
     ) {
         self.key = key
         self.defaultValue = defaultValue
@@ -117,7 +138,11 @@ public struct RawRepresentableUserDefault<Value: RawRepresentable>
     ) -> Value where EnclosingSelf.ObjectWillChangePublisher == ObservableObjectPublisher {
         get {
             let w = instance[keyPath: storageKP]
-            guard let stored = w.store.object(forKey: w.key) as? Value.RawValue else {
+            let store = resolvedUserDefaultsStore(
+                explicitStore: w.store,
+                enclosingInstance: instance
+            )
+            guard let stored = store.object(forKey: w.key) as? Value.RawValue else {
                 return w.defaultValue
             }
             let normalized = w.rawAliasMap[stored] ?? stored
@@ -126,7 +151,11 @@ public struct RawRepresentableUserDefault<Value: RawRepresentable>
         set {
             instance.objectWillChange.send()
             let w = instance[keyPath: storageKP]
-            w.store.set(newValue.rawValue, forKey: w.key)
+            let store = resolvedUserDefaultsStore(
+                explicitStore: w.store,
+                enclosingInstance: instance
+            )
+            store.set(newValue.rawValue, forKey: w.key)
         }
     }
 }
@@ -139,12 +168,12 @@ public struct RawRepresentableUserDefault<Value: RawRepresentable>
 public struct CodableUserDefault<Value: Codable> {
     public let key: String
     public let defaultValue: Value
-    private let store: UserDefaults
+    private let store: UserDefaults?
 
     public init(
         key: String,
         defaultValue: Value,
-        store: UserDefaults = .standard
+        store: UserDefaults? = nil
     ) {
         self.key = key
         self.defaultValue = defaultValue
@@ -164,7 +193,11 @@ public struct CodableUserDefault<Value: Codable> {
     ) -> Value where EnclosingSelf.ObjectWillChangePublisher == ObservableObjectPublisher {
         get {
             let w = instance[keyPath: storageKP]
-            guard let data = w.store.data(forKey: w.key),
+            let store = resolvedUserDefaultsStore(
+                explicitStore: w.store,
+                enclosingInstance: instance
+            )
+            guard let data = store.data(forKey: w.key),
                   let decoded = try? JSONDecoder().decode(Value.self, from: data)
             else { return w.defaultValue }
             return decoded
@@ -172,8 +205,12 @@ public struct CodableUserDefault<Value: Codable> {
         set {
             instance.objectWillChange.send()
             let w = instance[keyPath: storageKP]
+            let store = resolvedUserDefaultsStore(
+                explicitStore: w.store,
+                enclosingInstance: instance
+            )
             if let data = try? JSONEncoder().encode(newValue) {
-                w.store.set(data, forKey: w.key)
+                store.set(data, forKey: w.key)
             }
         }
     }

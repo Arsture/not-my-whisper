@@ -50,6 +50,14 @@ struct LLMSettingsView: View {
                     groqApiKeySection
                 }
 
+                // OpenAI-compatible sections
+                if appState.settings.llmProviderType == .openaiCompatible {
+                    openAICompatibleSection
+                    if appState.settings.openaiCompatibleSupportsVision {
+                        screenshotSection
+                    }
+                }
+
                 // Model Status
                 if appState.settings.llmProviderType == .local,
                    !appState.llmModelState.isReady
@@ -404,6 +412,74 @@ struct LLMSettingsView: View {
     }
 
     // MARK: - Screenshot Context
+
+    // MARK: - OpenAI-compatible API
+
+    private var openAICompatibleSection: some View {
+        LiquidSection("OpenAI 호환 API") {
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Base URL")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("https://api.openai.com/v1", text: Binding(
+                        get: { appState.settings.openaiCompatibleBaseURL },
+                        set: {
+                            appState.settings.openaiCompatibleBaseURL = $0
+                            Task { await appState.switchLLMProvider(to: .openaiCompatible) }
+                        }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("API Key (선택 — 로컬 서버는 비워도 됨)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    SecureField("API Key", text: Binding(
+                        get: { appState.settings.openaiCompatibleAPIKey },
+                        set: {
+                            appState.settings.openaiCompatibleAPIKey = $0
+                            Task { await appState.switchLLMProvider(to: .openaiCompatible) }
+                        }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("모델 ID")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("예: gpt-4o-mini, deepseek-chat", text: Binding(
+                        get: { appState.settings.openaiCompatibleModelId },
+                        set: {
+                            appState.settings.openaiCompatibleModelId = $0
+                            Task { await appState.switchLLMProvider(to: .openaiCompatible) }
+                        }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                }
+
+                Toggle(isOn: Binding(
+                    get: { appState.settings.openaiCompatibleSupportsVision },
+                    set: {
+                        appState.settings.openaiCompatibleSupportsVision = $0
+                        if $0 { appState.settings.isScreenshotContextEnabled = true }
+                        Task { await appState.switchLLMProvider(to: .openaiCompatible) }
+                    }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Vision 지원 모델")
+                            .font(.subheadline.weight(.medium))
+                        Text("모델이 이미지 입력을 지원하면 스크린샷 컨텍스트를 활용합니다")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+            }
+        }
+    }
 
     private var screenshotSection: some View {
         LiquidSection("스크린샷 컨텍스트") {
