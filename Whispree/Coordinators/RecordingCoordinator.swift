@@ -510,6 +510,13 @@ final class RecordingCoordinator: ObservableObject {
             "openai:\(appState.settings.openaiModel.rawValue)"
         case .groq:
             "groq:\(appState.settings.groqLLMModel.rawValue):\(appState.settings.groqApiKey.hashValue)"
+        case .openaiCompatible:
+            OpenAICompatibleProvider.configurationKey(
+                baseURL: appState.settings.openaiCompatibleBaseURL,
+                apiKey: appState.settings.openaiCompatibleAPIKey,
+                modelId: appState.settings.openaiCompatibleModelId,
+                supportsVision: appState.settings.openaiCompatibleSupportsVision
+            )
         }
     }
 
