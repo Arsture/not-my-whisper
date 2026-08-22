@@ -10,11 +10,11 @@
       <sparkle:version>0.1.18</sparkle:version>
       <sparkle:shortVersionString>0.1.18</sparkle:shortVersionString>
       <sparkle:releaseNotesLink>https://arsture.github.io/whispree/release-notes.html</sparkle:releaseNotesLink>
-      <pubDate>Sat, 22 Aug 2026 09:32:58 +0000</pubDate>
+      <pubDate>Sat, 22 Aug 2026 09:35:33 +0000</pubDate>
       <enclosure url="https://github.com/Arsture/whispree/releases/download/v0.1.18/Whispree.zip"
                  sparkle:version="0.1.18"
-                 sparkle:edSignature="NzL0bZRjUYHpDS7laiTJfn5eteXjsj77L1mYGN7masxc3F51sDcuj7txq44zPk6Jb5/4F/Y8oM1UoHySYkLuDw=="
-                 length="20370824"
+                 sparkle:edSignature="hxVvzt352HM2d/fS/i8Eql94MV2y5vDOs8yAMTkJEhXaZ5SF0zZ1UOMnAt4+0aIBb869Smhnt2pS8D+n0wmHBA=="
+                 length="20370811"
                  type="application/octet-stream" />
     </item>
   </channel>
