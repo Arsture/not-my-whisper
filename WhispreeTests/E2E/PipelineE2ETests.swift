@@ -185,6 +185,32 @@ final class PipelineE2ETests: XCTestCase {
         XCTAssertTrue(appState.llmProvider?.isReady ?? false)
     }
 
+    func testAppStateLLMProviderSwitchOpenAICompatible() async {
+        let appState = AppState()
+        defer {
+            appState.settings.llmProviderType = .none
+            appState.settings.openaiCompatibleBaseURL = ""
+            appState.settings.openaiCompatibleAPIKey = ""
+            appState.settings.openaiCompatibleModelId = ""
+            appState.settings.openaiCompatibleSupportsVision = false
+            appState.settings.isScreenshotContextEnabled = false
+        }
+        appState.settings.llmProviderType = .openaiCompatible
+        appState.settings.openaiCompatibleBaseURL = "http://localhost:11434/v1"
+        appState.settings.openaiCompatibleAPIKey = ""
+        appState.settings.openaiCompatibleModelId = "local-model"
+        appState.settings.openaiCompatibleSupportsVision = true
+
+        await appState.switchLLMProvider(to: .openaiCompatible)
+
+        XCTAssertTrue(appState.llmProvider is OpenAICompatibleProvider)
+        XCTAssertEqual(appState.llmProvider?.name, "OpenAI 호환 API")
+        XCTAssertTrue(appState.llmProvider?.isReady ?? false)
+        XCTAssertTrue(appState.llmProvider?.supportsVision ?? false)
+        XCTAssertTrue(appState.settings.isScreenshotContextEnabled)
+        XCTAssertTrue(appState.llmModelState.isReady)
+    }
+
     // MARK: - US-004: Full Pipeline
 
     func testFullPipelineWithNoneProvider() async throws {

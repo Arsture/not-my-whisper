@@ -21,6 +21,10 @@ final class AppSettingsTests: XCTestCase {
         "whispree.sttProviderType",
         "whispree.llmProviderType",
         "whispree.openaiModel",
+        "whispree.openaiCompatibleBaseURL",
+        "whispree.openaiCompatibleAPIKey",
+        "whispree.openaiCompatibleModelId",
+        "whispree.openaiCompatibleSupportsVision",
         "whispree.isScreenshotContextEnabled",
         "whispree.isScreenshotPasteEnabled",
         "whispree.groqApiKey",
@@ -85,11 +89,20 @@ final class AppSettingsTests: XCTestCase {
     }
 
     func testLLMProviderTypeCases() {
-        XCTAssertEqual(LLMProviderType.allCases.count, 4)
+        XCTAssertEqual(LLMProviderType.allCases.count, 5)
         XCTAssertEqual(LLMProviderType.none.rawValue, "없음 (원문 사용)")
         XCTAssertEqual(LLMProviderType.local.rawValue, "로컬 MLX")
         XCTAssertEqual(LLMProviderType.openai.rawValue, "OpenAI (GPT)")
+        XCTAssertEqual(LLMProviderType.openaiCompatible.rawValue, "OpenAI 호환 API")
         XCTAssertEqual(LLMProviderType.groq.rawValue, "Groq Cloud")
+    }
+
+    func testDefaultOpenAICompatibleSettings() {
+        let settings = AppSettings()
+        XCTAssertEqual(settings.openaiCompatibleBaseURL, "")
+        XCTAssertEqual(settings.openaiCompatibleAPIKey, "")
+        XCTAssertEqual(settings.openaiCompatibleModelId, "")
+        XCTAssertFalse(settings.openaiCompatibleSupportsVision)
     }
 
     // MARK: - OpenAI Models
@@ -223,6 +236,10 @@ final class AppSettingsTests: XCTestCase {
         s1.audioInputChannel = 2
         s1.openaiModel = .gpt54mini
         s1.recordingMode = .toggle
+        s1.openaiCompatibleBaseURL = "http://localhost:11434/v1"
+        s1.openaiCompatibleAPIKey = "compat-key"
+        s1.openaiCompatibleModelId = "local-model"
+        s1.openaiCompatibleSupportsVision = true
 
         // 새 인스턴스는 UserDefaults에서 직접 읽어 동일한 값이어야 함 — 싱글톤 없이도 필드별 persist.
         let s2 = AppSettings()
@@ -230,6 +247,10 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(s2.audioInputChannel, 2)
         XCTAssertEqual(s2.openaiModel, .gpt54mini)
         XCTAssertEqual(s2.recordingMode, .toggle)
+        XCTAssertEqual(s2.openaiCompatibleBaseURL, "http://localhost:11434/v1")
+        XCTAssertEqual(s2.openaiCompatibleAPIKey, "compat-key")
+        XCTAssertEqual(s2.openaiCompatibleModelId, "local-model")
+        XCTAssertTrue(s2.openaiCompatibleSupportsVision)
     }
 
     func testCustomLLMPromptOptionalNilRoundTrip() {
@@ -288,6 +309,10 @@ final class AppSettingsTests: XCTestCase {
             "isScreenshotContextEnabled": true,
             "isScreenshotPasteEnabled": false,
             "groqApiKey": "gsk_legacy",
+            "openaiCompatibleBaseURL": "https://compat.example/v1",
+            "openaiCompatibleAPIKey": "compat_legacy",
+            "openaiCompatibleModelId": "legacy-model",
+            "openaiCompatibleSupportsVision": true,
             "audioInputChannel": 3,
             "vadEnabled": false,
             "domainWordSets": [],
@@ -318,6 +343,10 @@ final class AppSettingsTests: XCTestCase {
         // 활성화 ON + 전달 OFF → 독립 토글이므로 값 유지
         XCTAssertFalse(settings.isScreenshotPasteEnabled)
         XCTAssertEqual(settings.groqApiKey, "gsk_legacy")
+        XCTAssertEqual(settings.openaiCompatibleBaseURL, "https://compat.example/v1")
+        XCTAssertEqual(settings.openaiCompatibleAPIKey, "compat_legacy")
+        XCTAssertEqual(settings.openaiCompatibleModelId, "legacy-model")
+        XCTAssertTrue(settings.openaiCompatibleSupportsVision)
         XCTAssertEqual(settings.audioInputChannel, 3)
         XCTAssertFalse(settings.vadEnabled)
 

@@ -9,24 +9,37 @@ import Foundation
 final class OpenAICompatibleProvider: LLMProvider {
     let name = "OpenAI 호환 API"
     let requiresNetwork = true
-    var supportsVision: Bool { supportsVisionOverride }
+    var supportsVision: Bool {
+        supportsVisionOverride
+    }
 
-    private var baseURL: String
-    private var apiKey: String
-    private var modelId: String
-    private var supportsVisionOverride: Bool
+    private let baseURL: String
+    private let apiKey: String
+    private let modelId: String
+    private let supportsVisionOverride: Bool
+    private let session: URLSession
     private let correctionTimeout: TimeInterval = 30.0
 
-    init(baseURL: String, apiKey: String, modelId: String, supportsVision: Bool) {
+    init(
+        baseURL: String,
+        apiKey: String,
+        modelId: String,
+        supportsVision: Bool,
+        session: URLSession = .shared
+    ) {
         self.baseURL = Self.normalizeBaseURL(baseURL)
         self.apiKey = apiKey
-        self.modelId = modelId
-        self.supportsVisionOverride = supportsVision
+        self.modelId = modelId.trimmingCharacters(in: .whitespacesAndNewlines)
+        supportsVisionOverride = supportsVision
+        self.session = session
     }
 
     func validate() -> ProviderValidation {
         if baseURL.isEmpty {
             return .invalid("Base URL을 입력하세요. (예: https://api.openai.com/v1)")
+        }
+        guard Self.chatCompletionsURL(baseURL: baseURL) != nil else {
+            return .invalid("Base URL은 유효한 http(s) 주소여야 합니다. (예: http://localhost:11434/v1)")
         }
         if modelId.isEmpty {
             return .invalid("모델 ID를 입력하세요. (예: gpt-4o-mini, deepseek-chat)")
@@ -80,7 +93,7 @@ final class OpenAICompatibleProvider: LLMProvider {
             "stream": false
         ]
 
-        guard let url = URL(string: baseURL + "/chat/completions") else {
+        guard let url = Self.chatCompletionsURL(baseURL: baseURL) else {
             throw LLMError.correctionFailed("잘못된 Base URL: \(baseURL)")
         }
         var request = URLRequest(url: url)
@@ -92,10 +105,12 @@ final class OpenAICompatibleProvider: LLMProvider {
         request.timeoutInterval = correctionTimeout
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
+        let session = session
+        let correctionTimeout = correctionTimeout
         let result = try await withThrowingTaskGroup(of: String.self) { group in
-            group.addTask { try await Self.performRequest(request) }
+            group.addTask { try await Self.performRequest(request, session: session) }
             group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(self.correctionTimeout * 1_000_000_000))
+                try await Task.sleep(nanoseconds: UInt64(correctionTimeout * 1_000_000_000))
                 throw LLMError.timeout
             }
             let value = try await group.next()!
@@ -116,8 +131,8 @@ final class OpenAICompatibleProvider: LLMProvider {
 
     // MARK: - Networking
 
-    private static func performRequest(_ request: URLRequest) async throws -> String {
-        let (data, response) = try await URLSession.shared.data(for: request)
+    private static func performRequest(_ request: URLRequest, session: URLSession) async throws -> String {
+        let (data, response) = try await session.data(for: request)
 
         guard let http = response as? HTTPURLResponse else {
             throw LLMError.correctionFailed("응답 없음")
@@ -132,8 +147,10 @@ final class OpenAICompatibleProvider: LLMProvider {
                 struct Message: Decodable {
                     let content: String?
                 }
+
                 let message: Message
             }
+
             let choices: [Choice]
         }
 
@@ -150,6 +167,30 @@ final class OpenAICompatibleProvider: LLMProvider {
             trimmed.removeLast()
         }
         return trimmed
+    }
+
+    private static func chatCompletionsURL(baseURL: String) -> URL? {
+        guard let components = URLComponents(string: baseURL),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              components.host?.isEmpty == false,
+              components.query == nil,
+              components.fragment == nil,
+              let url = components.url
+        else { return nil }
+
+        return url.appending(path: "chat/completions")
+    }
+
+    static func configurationKey(
+        baseURL: String,
+        apiKey: String,
+        modelId: String,
+        supportsVision: Bool
+    ) -> String {
+        let normalizedURL = normalizeBaseURL(baseURL)
+        let normalizedModelId = modelId.trimmingCharacters(in: .whitespacesAndNewlines)
+        return "openaiCompatible:\(normalizedURL):\(normalizedModelId):\(apiKey.hashValue):vision=\(supportsVision)"
     }
 
     /// Qwen3 등의 `<think>...</think>` 블록 제거.
