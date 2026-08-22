@@ -3,79 +3,57 @@ import XCTest
 
 @MainActor
 final class AppSettingsTests: XCTestCase {
+    private static let suiteName = "com.whispree.app.tests.AppSettings"
+    private var defaults: UserDefaults?
 
-    /// 마이그레이션/wrapper 상태가 테스트 간에 새지 않도록 모든 `whispree.*` 키와
-    /// 레거시 blob, migration-failed 플래그를 제거한다.
-    private static let allKeys: [String] = [
-        "whispree.recordingMode",
-        "whispree.language",
-        "whispree.isLLMEnabled",
-        "whispree.hasCompletedOnboarding",
-        "whispree.launchAtLogin",
-        "whispree.showOverlay",
-        "whispree.correctionMode",
-        "whispree.customLLMPrompt",
-        "whispree.whisperModelId",
-        "whispree.llmModelId",
-        "whispree.mlxAudioModelId",
-        "whispree.sttProviderType",
-        "whispree.llmProviderType",
-        "whispree.openaiModel",
-        "whispree.openaiCompatibleBaseURL",
-        "whispree.openaiCompatibleAPIKey",
-        "whispree.openaiCompatibleModelId",
-        "whispree.openaiCompatibleSupportsVision",
-        "whispree.isScreenshotContextEnabled",
-        "whispree.isScreenshotPasteEnabled",
-        "whispree.groqApiKey",
-        "whispree.audioInputChannel",
-        "whispree.vadEnabled",
-        "whispree.domainWordSets",
-        "whispree.legacyMigrationFailed",
-        "WhispreeSettings",
-    ]
+    private var store: UserDefaults {
+        guard let defaults else {
+            preconditionFailure("AppSettingsTests store accessed before setUp")
+        }
+        return defaults
+    }
 
     override func setUp() {
         super.setUp()
-        let defaults = UserDefaults.standard
-        for key in Self.allKeys {
-            defaults.removeObject(forKey: key)
-        }
+        defaults = UserDefaults(suiteName: Self.suiteName)
+        store.removePersistentDomain(forName: Self.suiteName)
     }
 
     override func tearDown() {
-        let defaults = UserDefaults.standard
-        for key in Self.allKeys {
-            defaults.removeObject(forKey: key)
-        }
+        defaults?.removePersistentDomain(forName: Self.suiteName)
+        defaults = nil
         super.tearDown()
+    }
+
+    private func makeSettings() -> AppSettings {
+        AppSettings(store: store, migrateHotkeys: false)
     }
 
     // MARK: - Default Values
 
     func testDefaultSTTProvider() {
-        let settings = AppSettings()
+        let settings = makeSettings()
         XCTAssertEqual(settings.sttProviderType, .whisperKit)
     }
 
     func testDefaultLLMProvider() {
-        let settings = AppSettings()
+        let settings = makeSettings()
         XCTAssertEqual(settings.llmProviderType, .none)
     }
 
     func testDefaultOpenAIModel() {
-        let settings = AppSettings()
+        let settings = makeSettings()
         XCTAssertEqual(settings.openaiModel, .gpt56sol)
     }
 
     func testDefaultLLMEnabled() {
-        let settings = AppSettings()
+        let settings = makeSettings()
         // 기본값은 `true` — 사용자가 명시적으로 끄기 전까지 교정 활성화가 의도.
         XCTAssertTrue(settings.isLLMEnabled)
     }
 
     func testDefaultDomainWordSetsEmpty() {
-        let settings = AppSettings()
+        let settings = makeSettings()
         XCTAssertTrue(settings.domainWordSets.isEmpty)
     }
 
@@ -98,7 +76,7 @@ final class AppSettingsTests: XCTestCase {
     }
 
     func testDefaultOpenAICompatibleSettings() {
-        let settings = AppSettings()
+        let settings = makeSettings()
         XCTAssertEqual(settings.openaiCompatibleBaseURL, "")
         XCTAssertEqual(settings.openaiCompatibleAPIKey, "")
         XCTAssertEqual(settings.openaiCompatibleModelId, "")
@@ -135,14 +113,14 @@ final class AppSettingsTests: XCTestCase {
     }
 
     func testOpenAIModelAliasMigration() {
-        UserDefaults.standard.set("gpt-5.3-codex-spark", forKey: "whispree.openaiModel")
-        XCTAssertEqual(AppSettings().openaiModel, .gpt54mini)
+        store.set("gpt-5.3-codex-spark", forKey: "whispree.openaiModel")
+        XCTAssertEqual(makeSettings().openaiModel, .gpt54mini)
 
-        UserDefaults.standard.set("gpt-5.2-codex", forKey: "whispree.openaiModel")
-        XCTAssertEqual(AppSettings().openaiModel, .gpt52)
+        store.set("gpt-5.2-codex", forKey: "whispree.openaiModel")
+        XCTAssertEqual(makeSettings().openaiModel, .gpt52)
 
-        UserDefaults.standard.set("gpt-5.6", forKey: "whispree.openaiModel")
-        XCTAssertEqual(AppSettings().openaiModel, .gpt56sol)
+        store.set("gpt-5.6", forKey: "whispree.openaiModel")
+        XCTAssertEqual(makeSettings().openaiModel, .gpt56sol)
 
         let decoded = try? JSONDecoder().decode(OpenAIModel.self, from: Data(#""gpt-5.2-codex""#.utf8))
         XCTAssertEqual(decoded, .gpt52)
@@ -231,7 +209,7 @@ final class AppSettingsTests: XCTestCase {
     // MARK: - Wrapper persistence
 
     func testWrapperPersistenceAcrossInstances() {
-        let s1 = AppSettings()
+        let s1 = makeSettings()
         s1.groqApiKey = "gsk_test_123"
         s1.audioInputChannel = 2
         s1.openaiModel = .gpt54mini
@@ -242,7 +220,7 @@ final class AppSettingsTests: XCTestCase {
         s1.openaiCompatibleSupportsVision = true
 
         // 새 인스턴스는 UserDefaults에서 직접 읽어 동일한 값이어야 함 — 싱글톤 없이도 필드별 persist.
-        let s2 = AppSettings()
+        let s2 = makeSettings()
         XCTAssertEqual(s2.groqApiKey, "gsk_test_123")
         XCTAssertEqual(s2.audioInputChannel, 2)
         XCTAssertEqual(s2.openaiModel, .gpt54mini)
@@ -253,23 +231,43 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(s2.openaiCompatibleSupportsVision)
     }
 
+    func testInjectedStoreDoesNotMutateAnotherDefaultsDomain() {
+        let otherSuiteName = "com.whispree.app.tests.ProductionSurrogate"
+        guard let otherStore = UserDefaults(suiteName: otherSuiteName) else {
+            XCTFail("Could not create production surrogate defaults")
+            return
+        }
+        defer { otherStore.removePersistentDomain(forName: otherSuiteName) }
+
+        otherStore.set("production-key", forKey: "whispree.groqApiKey")
+        otherStore.set(true, forKey: "whispree.hasCompletedOnboarding")
+
+        let settings = makeSettings()
+        settings.groqApiKey = "test-key"
+        settings.hasCompletedOnboarding = false
+
+        XCTAssertEqual(store.string(forKey: "whispree.groqApiKey"), "test-key")
+        XCTAssertEqual(otherStore.string(forKey: "whispree.groqApiKey"), "production-key")
+        XCTAssertTrue(otherStore.bool(forKey: "whispree.hasCompletedOnboarding"))
+    }
+
     func testCustomLLMPromptOptionalNilRoundTrip() {
-        let s1 = AppSettings()
+        let s1 = makeSettings()
         s1.customLLMPrompt = "my custom prompt"
-        XCTAssertEqual(AppSettings().customLLMPrompt, "my custom prompt")
+        XCTAssertEqual(makeSettings().customLLMPrompt, "my custom prompt")
 
         // nil 할당 시 wrapper가 removeObject 호출 → 새 인스턴스에서 default(nil) 복구
         s1.customLLMPrompt = nil
-        XCTAssertNil(AppSettings().customLLMPrompt)
+        XCTAssertNil(makeSettings().customLLMPrompt)
     }
 
     func testDomainWordSetsCodablePersistence() {
-        let s1 = AppSettings()
+        let s1 = makeSettings()
         var sets = s1.domainWordSets
         sets.append(DomainWordSet(name: "Unit Test", words: ["alpha", "beta"]))
         s1.domainWordSets = sets
 
-        let s2 = AppSettings()
+        let s2 = makeSettings()
         XCTAssertEqual(s2.domainWordSets.count, 1)
         XCTAssertEqual(s2.domainWordSets.first?.name, "Unit Test")
         XCTAssertEqual(s2.domainWordSets.first?.words, ["alpha", "beta"])
@@ -278,14 +276,14 @@ final class AppSettingsTests: XCTestCase {
     // MARK: - Migration
 
     func testCorrectionModeAliasMigration() {
-        UserDefaults.standard.set("promptEngineering", forKey: "whispree.correctionMode")
-        let settings = AppSettings()
+        store.set("promptEngineering", forKey: "whispree.correctionMode")
+        let settings = makeSettings()
         XCTAssertEqual(settings.correctionMode, .fillerRemoval)
     }
 
     func testLLMProviderTypeAliasMigration() {
-        UserDefaults.standard.set("로컬 LLM (Qwen3)", forKey: "whispree.llmProviderType")
-        let settings = AppSettings()
+        store.set("로컬 LLM (Qwen3)", forKey: "whispree.llmProviderType")
+        let settings = makeSettings()
         XCTAssertEqual(settings.llmProviderType, .local)
     }
 
@@ -318,10 +316,10 @@ final class AppSettingsTests: XCTestCase {
             "domainWordSets": [],
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
-        UserDefaults.standard.set(data, forKey: "WhispreeSettings")
+        store.set(data, forKey: "WhispreeSettings")
 
-        // When: AppSettings() 인스턴스 생성 (migrate → runFieldMigrations)
-        let settings = AppSettings()
+        // When: 격리 store를 사용하는 AppSettings 인스턴스 생성
+        let settings = makeSettings()
 
         // Then: 모든 필드가 wrapper 키에서 읽혀야 하고, blob은 삭제돼야 함
         XCTAssertEqual(settings.recordingMode, .toggle)
@@ -350,7 +348,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.audioInputChannel, 3)
         XCTAssertFalse(settings.vadEnabled)
 
-        XCTAssertNil(UserDefaults.standard.data(forKey: "WhispreeSettings"),
+        XCTAssertNil(store.data(forKey: "WhispreeSettings"),
                      "Legacy blob should be removed after successful migration")
     }
 
@@ -360,19 +358,19 @@ final class AppSettingsTests: XCTestCase {
             "llmModelId": "mlx-community/Qwen2.5-3B-Instruct-4bit",
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
-        UserDefaults.standard.set(data, forKey: "WhispreeSettings")
+        store.set(data, forKey: "WhispreeSettings")
 
-        let settings = AppSettings()
+        let settings = makeSettings()
         XCTAssertEqual(settings.llmModelId, "mlx-community/Qwen3-4B-Instruct-2507-4bit")
     }
 
     func testLegacyBlobCorruptedFailsGracefully() {
         // 깨진 JSON blob → migration 실패 플래그 설정, 기본값 사용, 재시도 방지
-        UserDefaults.standard.set(Data("not json".utf8), forKey: "WhispreeSettings")
+        store.set(Data("not json".utf8), forKey: "WhispreeSettings")
 
-        let settings = AppSettings()
+        let settings = makeSettings()
         XCTAssertEqual(settings.sttProviderType, .whisperKit, "Should fall back to defaults")
-        XCTAssertTrue(UserDefaults.standard.bool(forKey: "whispree.legacyMigrationFailed"),
+        XCTAssertTrue(store.bool(forKey: "whispree.legacyMigrationFailed"),
                       "Migration failure flag should be set")
     }
 }

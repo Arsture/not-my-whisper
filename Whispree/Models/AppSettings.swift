@@ -11,10 +11,12 @@ import KeyboardShortcuts
 /// - **변경 전파**: wrapper의 setter가 `objectWillChange.send()`를 자동 호출 →
 ///   SwiftUI 뷰가 변경을 자동 감지.
 /// - **저장**: wrapper가 내부적으로 UserDefaults에 set/remove를 수행하므로 `save()` 호출 불필요.
-/// - **마이그레이션**: `init()` 첫 줄에서 `migrateLegacyBlobIfNeeded()` 호출 →
+/// - **마이그레이션**: 초기화 시 주입된 store에서 `migrateLegacyBlobIfNeeded()` 호출 →
 ///   기존 `"WhispreeSettings"` JSON blob을 각 필드 키로 분해 저장 후 blob 삭제.
 @MainActor
-final class AppSettings: ObservableObject {
+final class AppSettings: ObservableObject, UserDefaultsStoreProviding {
+
+    nonisolated let userDefaultsStore: UserDefaults
 
     // MARK: - Recording
 
@@ -187,16 +189,19 @@ final class AppSettings: ObservableObject {
 
     // MARK: - Init
 
-    init() {
-        Self.migrateLegacyBlobIfNeeded()
-        migrateHotkeysIfNeeded()
+    init(store: UserDefaults = .standard, migrateHotkeys: Bool = true) {
+        userDefaultsStore = store
+        Self.migrateLegacyBlobIfNeeded(store: store)
+        if migrateHotkeys {
+            migrateHotkeysIfNeeded()
+        }
         runFieldMigrations()
     }
 
     /// KeyboardShortcuts 라이브러리 저장소 → AppSettings.toggleRecordingShortcut/quickFixShortcut로 1회성 마이그레이션.
     /// 유저가 기존에 커스텀 단축키를 설정했다면 그 값을 가져오고, 아니면 default 유지.
     private func migrateHotkeysIfNeeded() {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaultsStore
         let flagKey = "whispree.hotkeyMigrationDone"
         guard !defaults.bool(forKey: flagKey) else { return }
 
@@ -261,8 +266,7 @@ final class AppSettings: ObservableObject {
     /// - 성공 시: blob 삭제 → 이후엔 wrapper만 동작.
     /// - 디코드 실패 시: `whispree.legacyMigrationFailed = true` 플래그 → 재시도 방지.
     /// - 부분 실패 (crash 등): 다음 부팅에서 idempotent 재실행 (blob이 남아있으므로).
-    static func migrateLegacyBlobIfNeeded() {
-        let defaults = UserDefaults.standard
+    static func migrateLegacyBlobIfNeeded(store defaults: UserDefaults = .standard) {
         let legacyKey = "WhispreeSettings"
         let migrationFailedKey = "whispree.legacyMigrationFailed"
 

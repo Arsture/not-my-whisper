@@ -30,6 +30,8 @@
 
 **절대 struct + JSON blob 방식으로 되돌리지 말 것.** 과거에 그 방식이 Swift synthesized `init(from:)`의 `keyNotFound` throw 때문에 업데이트마다 전체 설정을 리셋시키던 버그를 근본 해결한 구조임 (기존 유저의 groqApiKey / correctionMode / domainWordSets 등이 매번 날아가던 문제).
 
+`AppSettings(store:migrateHotkeys:)`의 store 주입은 테스트 격리 경계다. 앱은 기본 `.standard`를 사용하지만 테스트는 반드시 고유 `UserDefaults(suiteName:)`와 `migrateHotkeys: false`를 전달해야 한다. 테스트 호스트는 실제 앱과 같은 bundle ID로 실행되므로 `UserDefaults.standard`를 삭제하거나 테스트 값을 쓰면 사용자의 API key·온보딩 상태를 직접 손상시킨다.
+
 필드 추가 절차:
 
 1. 타입에 맞는 wrapper 한 줄 선언:
