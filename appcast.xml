@@ -6,15 +6,15 @@
     <description>Most recent updates to Whispree</description>
     <language>en</language>
     <item>
-      <title>Version 0.1.18</title>
-      <sparkle:version>0.1.18</sparkle:version>
-      <sparkle:shortVersionString>0.1.18</sparkle:shortVersionString>
+      <title>Version 0.1.19</title>
+      <sparkle:version>0.1.19</sparkle:version>
+      <sparkle:shortVersionString>0.1.19</sparkle:shortVersionString>
       <sparkle:releaseNotesLink>https://arsture.github.io/whispree/release-notes.html</sparkle:releaseNotesLink>
-      <pubDate>Sat, 22 Aug 2026 09:35:33 +0000</pubDate>
-      <enclosure url="https://github.com/Arsture/whispree/releases/download/v0.1.18/Whispree.zip"
-                 sparkle:version="0.1.18"
-                 sparkle:edSignature="hxVvzt352HM2d/fS/i8Eql94MV2y5vDOs8yAMTkJEhXaZ5SF0zZ1UOMnAt4+0aIBb869Smhnt2pS8D+n0wmHBA=="
-                 length="20370811"
+      <pubDate>Sun, 23 Aug 2026 13:58:17 +0000</pubDate>
+      <enclosure url="https://github.com/Arsture/whispree/releases/download/v0.1.19/Whispree.zip"
+                 sparkle:version="0.1.19"
+                 sparkle:edSignature="Ca7LrWHJS1Z/+64IaVbdGX/DRwjMjupZQn7Q4AMeO8WaJshLiJZI1GYw3fi96g/gRFlNqScEcj3YPUJS1yrWAQ=="
+                 length="20371525"
                  type="application/octet-stream" />
     </item>
   </channel>
