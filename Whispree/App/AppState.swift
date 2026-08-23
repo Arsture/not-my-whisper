@@ -68,6 +68,8 @@ final class AppState: ObservableObject {
     let authService = CodexAuthService()
     let oauthService = OAuthService()
     private var authCancellables = Set<AnyCancellable>()
+    private var activeSTTProviderType: STTProviderType?
+    private var sttProviderLoadGeneration = 0
 
     // MARK: - Settings
 
@@ -138,25 +140,40 @@ final class AppState: ObservableObject {
     // MARK: - Provider Management
 
     func switchSTTProvider(to type: STTProviderType) async {
-        // 전환 시작 시 이전 에러 클리어
+        if activeSTTProviderType == type, whisperModelState == .loading || whisperModelState == .ready {
+            return
+        }
+
+        sttProviderLoadGeneration += 1
+        let loadGeneration = sttProviderLoadGeneration
+        activeSTTProviderType = type
         whisperModelState = .loading
 
-        // 이전 provider teardown (에러 무시 — 전환 중 teardown 실패는 예상된 동작)
-        await sttProvider?.teardown()
+        let previousProvider = sttProvider
+        sttProvider = nil
+        await previousProvider?.teardown()
 
-        switch type {
-            case .whisperKit:
-                sttProvider = WhisperKitProvider()
-            case .groq:
-                sttProvider = GroqSTTProvider(apiKey: settings.groqApiKey)
-            case .mlxAudio:
-                sttProvider = MLXAudioProvider(modelId: settings.mlxAudioModelId)
+        let provider: any STTProvider = switch type {
+        case .whisperKit:
+            WhisperKitProvider()
+        case .groq:
+            GroqSTTProvider(apiKey: settings.groqApiKey)
+        case .mlxAudio:
+            MLXAudioProvider(modelId: settings.mlxAudioModelId)
         }
+
         do {
-            try await sttProvider?.setup()
-            let validation = sttProvider?.validate() ?? .valid
+            try await provider.setup()
+            guard loadGeneration == sttProviderLoadGeneration else {
+                await provider.teardown()
+                return
+            }
+            let validation = provider.validate()
+            sttProvider = provider
             whisperModelState = validation.isValid ? .ready : .error(validation.message)
         } catch {
+            guard loadGeneration == sttProviderLoadGeneration else { return }
+            activeSTTProviderType = nil
             whisperModelState = .error(error.localizedDescription)
         }
     }

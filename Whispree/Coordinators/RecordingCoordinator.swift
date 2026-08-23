@@ -222,6 +222,9 @@ final class RecordingCoordinator: ObservableObject {
 
     private func processSTT(jobID: DictationJobID) async {
         defer {
+            if queue.job(id: jobID)?.status == .transcribing {
+                queue.failSTT(jobID: jobID, message: "STT transcription was interrupted")
+            }
             processingTasks[jobID] = nil
             scheduleProcessingAndDelivery()
             refreshProjectedState()
@@ -278,6 +281,9 @@ final class RecordingCoordinator: ObservableObject {
 
     private func processLLM(jobID: DictationJobID) async {
         defer {
+            if queue.job(id: jobID)?.status == .correcting {
+                queue.failLLMFallbackToRaw(jobID: jobID)
+            }
             processingTasks[jobID] = nil
             scheduleProcessingAndDelivery()
             refreshProjectedState()

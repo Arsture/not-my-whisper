@@ -69,6 +69,17 @@ final class PipelineE2ETests: XCTestCase {
         XCTAssertNotNil(result)
     }
 
+    func testWhisperKitTranscribesRepeatedly() async throws {
+        let provider = try await getOrCreateProvider()
+        let sampleRate: Float = 16000
+        let samples = (0..<Int(sampleRate * 2)).map { i in
+            sin(2.0 * .pi * 440.0 * Float(i) / sampleRate) * 0.5
+        }
+
+        _ = try await provider.transcribe(audioBuffer: samples, language: nil, promptTokens: nil)
+        _ = try await provider.transcribe(audioBuffer: samples, language: nil, promptTokens: nil)
+    }
+
     func testWhisperKitTranscribeSineWave() async throws {
         let provider = try await getOrCreateProvider()
         let sampleRate: Float = 16000
