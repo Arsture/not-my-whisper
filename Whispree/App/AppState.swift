@@ -4,6 +4,8 @@ import Foundation
 
 @MainActor
 final class AppState: ObservableObject {
+    typealias STTProviderFactory = (STTProviderType, AppSettings) -> any STTProvider
+
     // MARK: - Transcription State
 
     @Published var transcriptionState: TranscriptionState = .idle
@@ -68,7 +70,8 @@ final class AppState: ObservableObject {
     let authService = CodexAuthService()
     let oauthService = OAuthService()
     private var authCancellables = Set<AnyCancellable>()
-    private var activeSTTProviderType: STTProviderType?
+    private let sttProviderFactory: STTProviderFactory
+    private var activeSTTProviderConfigurationKey: String?
     private var sttProviderLoadGeneration = 0
 
     // MARK: - Settings
@@ -102,9 +105,22 @@ final class AppState: ObservableObject {
         sttProvider?.isReady ?? false
     }
 
-    init(settings: AppSettings? = nil) {
+    init(
+        settings: AppSettings? = nil,
+        sttProviderFactory: STTProviderFactory? = nil
+    ) {
         let resolvedSettings = settings ?? AppSettings()
         self.settings = resolvedSettings
+        self.sttProviderFactory = sttProviderFactory ?? { type, settings in
+            switch type {
+            case .whisperKit:
+                WhisperKitProvider()
+            case .groq:
+                GroqSTTProvider(apiKey: settings.groqApiKey)
+            case .mlxAudio:
+                MLXAudioProvider(modelId: settings.mlxAudioModelId)
+            }
+        }
 
         // settings/authService/oauthService의 @Published 변경을 AppState로 전파
         // (SwiftUI가 중첩 ObservableObject 변경을 자동 감지하지 않으므로)
@@ -140,26 +156,30 @@ final class AppState: ObservableObject {
     // MARK: - Provider Management
 
     func switchSTTProvider(to type: STTProviderType) async {
-        if activeSTTProviderType == type, whisperModelState == .loading || whisperModelState == .ready {
-            return
+        let configurationKey = sttProviderConfigurationKey(for: type)
+        if activeSTTProviderConfigurationKey == configurationKey {
+            if whisperModelState == .loading {
+                return
+            }
+            if whisperModelState == .ready, sttProvider != nil {
+                return
+            }
         }
 
         sttProviderLoadGeneration += 1
         let loadGeneration = sttProviderLoadGeneration
-        activeSTTProviderType = type
+        activeSTTProviderConfigurationKey = configurationKey
         whisperModelState = .loading
 
+        // Capture provider settings before the first suspension so the instance and
+        // configuration key always describe the same immutable selection.
+        let provider = sttProviderFactory(type, settings)
         let previousProvider = sttProvider
         sttProvider = nil
         await previousProvider?.teardown()
-
-        let provider: any STTProvider = switch type {
-        case .whisperKit:
-            WhisperKitProvider()
-        case .groq:
-            GroqSTTProvider(apiKey: settings.groqApiKey)
-        case .mlxAudio:
-            MLXAudioProvider(modelId: settings.mlxAudioModelId)
+        guard loadGeneration == sttProviderLoadGeneration else {
+            await provider.teardown()
+            return
         }
 
         do {
@@ -170,11 +190,28 @@ final class AppState: ObservableObject {
             }
             let validation = provider.validate()
             sttProvider = provider
-            whisperModelState = validation.isValid ? .ready : .error(validation.message)
+            if validation.isValid {
+                whisperModelState = .ready
+            } else {
+                activeSTTProviderConfigurationKey = nil
+                whisperModelState = .error(validation.message)
+            }
         } catch {
+            await provider.teardown()
             guard loadGeneration == sttProviderLoadGeneration else { return }
-            activeSTTProviderType = nil
+            activeSTTProviderConfigurationKey = nil
             whisperModelState = .error(error.localizedDescription)
+        }
+    }
+
+    func sttProviderConfigurationKey(for type: STTProviderType) -> String {
+        switch type {
+        case .whisperKit:
+            "whisperKit:\(settings.whisperModelId)"
+        case .groq:
+            "groq:\(settings.groqApiKey.hashValue)"
+        case .mlxAudio:
+            "mlxAudio:\(settings.mlxAudioModelId)"
         }
     }
 

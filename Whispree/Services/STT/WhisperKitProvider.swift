@@ -55,7 +55,7 @@ final class WhisperKitProvider: STTProvider, @unchecked Sendable {
             noSpeechThreshold: 0.5
         )
 
-        // Prompt tokens disable WhisperKit 0.18's prefill cache, so keep interactive
+        // Prompt tokens disable WhisperKit's prefill cache, so keep interactive
         // dictation prompts bounded instead of paying the slow path for large glossaries.
         if let promptTokens, !promptTokens.isEmpty {
             options.promptTokens = Array(promptTokens.prefix(64))

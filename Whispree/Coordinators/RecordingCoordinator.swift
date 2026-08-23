@@ -496,14 +496,7 @@ final class RecordingCoordinator: ObservableObject {
     }
 
     private func currentSTTProviderConfigKey() -> String {
-        switch appState.settings.sttProviderType {
-        case .whisperKit:
-            "whisperKit:\(appState.settings.whisperModelId)"
-        case .groq:
-            "groq:\(appState.settings.groqApiKey.hashValue)"
-        case .mlxAudio:
-            "mlxAudio:\(appState.settings.mlxAudioModelId)"
-        }
+        appState.sttProviderConfigurationKey(for: appState.settings.sttProviderType)
     }
 
     private func currentLLMProviderConfigKey() -> String {
