@@ -442,7 +442,7 @@ final class ModelManager: ObservableObject {
         downloadProgress[Self.whisperKitRepoId] = 0
 
         await appState.switchSTTProvider(to: .whisperKit)
-        modelCacheStates[Self.whisperKitRepoId] = true
+        modelCacheStates[Self.whisperKitRepoId] = appState.whisperModelState.isReady
 
         if originalType != .whisperKit {
             await appState.switchSTTProvider(to: originalType)
