@@ -4,6 +4,8 @@ import Foundation
 
 @MainActor
 final class AppState: ObservableObject {
+    typealias STTProviderFactory = (STTProviderType, AppSettings) -> any STTProvider
+
     // MARK: - Transcription State
 
     @Published var transcriptionState: TranscriptionState = .idle
@@ -68,6 +70,9 @@ final class AppState: ObservableObject {
     let authService = CodexAuthService()
     let oauthService = OAuthService()
     private var authCancellables = Set<AnyCancellable>()
+    private let sttProviderFactory: STTProviderFactory
+    private var activeSTTProviderConfigurationKey: String?
+    private var sttProviderLoadGeneration = 0
 
     // MARK: - Settings
 
@@ -100,9 +105,22 @@ final class AppState: ObservableObject {
         sttProvider?.isReady ?? false
     }
 
-    init(settings: AppSettings? = nil) {
+    init(
+        settings: AppSettings? = nil,
+        sttProviderFactory: STTProviderFactory? = nil
+    ) {
         let resolvedSettings = settings ?? AppSettings()
         self.settings = resolvedSettings
+        self.sttProviderFactory = sttProviderFactory ?? { type, settings in
+            switch type {
+            case .whisperKit:
+                WhisperKitProvider()
+            case .groq:
+                GroqSTTProvider(apiKey: settings.groqApiKey)
+            case .mlxAudio:
+                MLXAudioProvider(modelId: settings.mlxAudioModelId)
+            }
+        }
 
         // settings/authService/oauthService의 @Published 변경을 AppState로 전파
         // (SwiftUI가 중첩 ObservableObject 변경을 자동 감지하지 않으므로)
@@ -138,26 +156,62 @@ final class AppState: ObservableObject {
     // MARK: - Provider Management
 
     func switchSTTProvider(to type: STTProviderType) async {
-        // 전환 시작 시 이전 에러 클리어
+        let configurationKey = sttProviderConfigurationKey(for: type)
+        if activeSTTProviderConfigurationKey == configurationKey {
+            if whisperModelState == .loading {
+                return
+            }
+            if whisperModelState == .ready, sttProvider != nil {
+                return
+            }
+        }
+
+        sttProviderLoadGeneration += 1
+        let loadGeneration = sttProviderLoadGeneration
+        activeSTTProviderConfigurationKey = configurationKey
         whisperModelState = .loading
 
-        // 이전 provider teardown (에러 무시 — 전환 중 teardown 실패는 예상된 동작)
-        await sttProvider?.teardown()
-
-        switch type {
-            case .whisperKit:
-                sttProvider = WhisperKitProvider()
-            case .groq:
-                sttProvider = GroqSTTProvider(apiKey: settings.groqApiKey)
-            case .mlxAudio:
-                sttProvider = MLXAudioProvider(modelId: settings.mlxAudioModelId)
+        // Capture provider settings before the first suspension so the instance and
+        // configuration key always describe the same immutable selection.
+        let provider = sttProviderFactory(type, settings)
+        let previousProvider = sttProvider
+        sttProvider = nil
+        await previousProvider?.teardown()
+        guard loadGeneration == sttProviderLoadGeneration else {
+            await provider.teardown()
+            return
         }
+
         do {
-            try await sttProvider?.setup()
-            let validation = sttProvider?.validate() ?? .valid
-            whisperModelState = validation.isValid ? .ready : .error(validation.message)
+            try await provider.setup()
+            guard loadGeneration == sttProviderLoadGeneration else {
+                await provider.teardown()
+                return
+            }
+            let validation = provider.validate()
+            sttProvider = provider
+            if validation.isValid {
+                whisperModelState = .ready
+            } else {
+                activeSTTProviderConfigurationKey = nil
+                whisperModelState = .error(validation.message)
+            }
         } catch {
+            await provider.teardown()
+            guard loadGeneration == sttProviderLoadGeneration else { return }
+            activeSTTProviderConfigurationKey = nil
             whisperModelState = .error(error.localizedDescription)
+        }
+    }
+
+    func sttProviderConfigurationKey(for type: STTProviderType) -> String {
+        switch type {
+        case .whisperKit:
+            "whisperKit:\(settings.whisperModelId)"
+        case .groq:
+            "groq:\(settings.groqApiKey.hashValue)"
+        case .mlxAudio:
+            "mlxAudio:\(settings.mlxAudioModelId)"
         }
     }
 

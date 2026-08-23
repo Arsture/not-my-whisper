@@ -10,7 +10,12 @@ final class WhisperKitProvider: STTProvider, @unchecked Sendable {
     private var whisperKit: WhisperKit?
 
     func validate() -> ProviderValidation {
-        whisperKit != nil ? .valid : .invalid("WhisperKit 모델이 로드되지 않았습니다. 모델을 다운로드해주세요.")
+        guard let whisperKit else {
+            return .invalid("WhisperKit 모델이 로드되지 않았습니다. 모델을 다운로드해주세요.")
+        }
+        return whisperKit.modelState == .loaded
+            ? .valid
+            : .invalid("WhisperKit 모델이 아직 로드되지 않았습니다.")
     }
 
     func setup() async throws {
@@ -19,7 +24,8 @@ final class WhisperKitProvider: STTProvider, @unchecked Sendable {
             computeOptions: ModelComputeOptions(
                 audioEncoderCompute: .cpuAndNeuralEngine,
                 textDecoderCompute: .cpuAndNeuralEngine
-            )
+            ),
+            load: true
         )
         whisperKit = try await WhisperKit(config)
     }
@@ -43,41 +49,26 @@ final class WhisperKitProvider: STTProvider, @unchecked Sendable {
 
         var options = DecodingOptions(
             language: langCode,
+            temperatureFallbackCount: 0,
             detectLanguage: langCode == nil,
-            wordTimestamps: true,
+            wordTimestamps: false,
             noSpeechThreshold: 0.5
         )
 
-        // promptTokens 주입: 외부 전달 또는 domainWordSets에서 빌드
+        // Prompt tokens disable WhisperKit's prefill cache, so keep interactive
+        // dictation prompts bounded instead of paying the slow path for large glossaries.
         if let promptTokens, !promptTokens.isEmpty {
-            options.promptTokens = promptTokens
-        } else {
-            if let tokens = buildPromptTokens(from: domainWordSets) {
-                options.promptTokens = tokens
-            }
+            options.promptTokens = Array(promptTokens.prefix(64))
+        } else if let tokens = buildPromptTokens(from: domainWordSets) {
+            options.promptTokens = Array(tokens.prefix(64))
         }
 
-        var results = try await whisperKit.transcribe(audioArray: audioBuffer, decodeOptions: options)
-
-        // auto-detect 시 오감지 방어 (힌디어 등 → 한국어로 재시도)
-        if langCode == nil {
-            let detectedLang = results.first?.language
-            let expectedLanguages: Set = ["ko", "en", "ja", "zh"]
-            if let lang = detectedLang, !expectedLanguages.contains(lang) {
-                var retryOptions = options
-                retryOptions.language = "ko"
-                retryOptions.detectLanguage = false
-                results = try await whisperKit.transcribe(audioArray: audioBuffer, decodeOptions: retryOptions)
-            }
-        }
-
+        let results = try await whisperKit.transcribe(audioArray: audioBuffer, decodeOptions: options)
         let segments = results.map { result in
             TranscriptionSegment(
                 text: result.text,
                 language: result.language,
-                words: result.allWords.map { w in
-                    WordInfo(word: w.word, start: Double(w.start), end: Double(w.end))
-                }
+                words: nil
             )
         }
 
@@ -119,6 +110,6 @@ final class WhisperKitProvider: STTProvider, @unchecked Sendable {
         guard let tokenizer = whisperKit?.tokenizer else { return nil }
 
         let tokens = tokenizer.encode(text: promptText)
-        return Array(tokens.prefix(224)) // 224 토큰 제한
+        return Array(tokens.prefix(64))
     }
 }

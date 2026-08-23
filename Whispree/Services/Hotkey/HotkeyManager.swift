@@ -23,6 +23,7 @@ final class HotkeyManager: ObservableObject {
     private var eventTap: EventTapHotkeyService { eventTapService }
     private var isKeyDown = false
     private var escMonitorLocal: Any?
+    private var accessibilityCancellable: AnyCancellable?
 
     init(appState: AppState) {
         self.appState = appState
@@ -30,6 +31,14 @@ final class HotkeyManager: ObservableObject {
         setupHotkeys()
         setupEscCancel()
         setupOptionLongPress()
+
+        accessibilityCancellable = PermissionManager.shared.$accessibility
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                guard status == .granted else { return }
+                self?.eventTap.start()
+            }
     }
 
     private func setupOptionLongPress() {
